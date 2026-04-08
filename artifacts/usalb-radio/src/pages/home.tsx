@@ -6,6 +6,8 @@ import logoSrc from "@assets/usalbradio_1775675611808.jpg";
 
 const STREAM_URL = "https://uk4freenew.listen2myradio.com/live.mp3?typeportmount=s1_9311_stream_53436989";
 
+const isIOS = /iP(hone|ad|od)/.test(navigator.userAgent);
+
 export default function Home() {
   const audioRef = useRef<HTMLAudioElement>(null);
   const [isPlaying, setIsPlaying] = useState(false);
@@ -152,25 +154,36 @@ export default function Home() {
             </button>
 
             {/* Volume Control */}
-            <div className="w-full flex items-center gap-4 bg-black/40 p-4 rounded-2xl border border-white/5">
-              <button 
-                onClick={toggleMute}
-                className="text-gray-400 hover:text-white transition-colors"
-              >
-                {isMuted || volume === 0 ? (
-                  <VolumeX className="w-5 h-5" />
-                ) : (
-                  <Volume2 className="w-5 h-5" />
-                )}
-              </button>
-              <Slider
-                value={[isMuted ? 0 : volume]}
-                max={1}
-                step={0.01}
-                onValueChange={handleVolumeChange}
-                className="cursor-pointer"
-              />
-            </div>
+            {isIOS ? (
+              <div className="w-full flex items-center justify-center gap-3 bg-black/40 p-4 rounded-2xl border border-white/5">
+                <Volume2 className="w-5 h-5 text-gray-400 shrink-0" />
+                <span className="text-gray-400 text-sm text-center">
+                  Use your phone's volume buttons to adjust
+                </span>
+              </div>
+            ) : (
+              <div className="w-full flex items-center gap-4 bg-black/40 p-4 rounded-2xl border border-white/5">
+                <button 
+                  onClick={toggleMute}
+                  className="text-gray-400 hover:text-white transition-colors"
+                  data-testid="button-mute"
+                >
+                  {isMuted || volume === 0 ? (
+                    <VolumeX className="w-5 h-5" />
+                  ) : (
+                    <Volume2 className="w-5 h-5" />
+                  )}
+                </button>
+                <Slider
+                  value={[isMuted ? 0 : volume]}
+                  max={1}
+                  step={0.01}
+                  onValueChange={handleVolumeChange}
+                  className="cursor-pointer"
+                  data-testid="slider-volume"
+                />
+              </div>
+            )}
           </div>
         </div>
 
