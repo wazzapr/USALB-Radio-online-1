@@ -1,0 +1,31 @@
+kind = "web"
+previewPath = "/"
+title = "USALB RADIO"
+version = "1.0.0"
+id = "artifacts/usalb-radio"
+router = "path"
+
+[[integratedSkills]]
+name = "react-vite"
+version = "1.0.0"
+
+[[services]]
+name = "web"
+paths = [ "/" ]
+localPort = 19604
+
+[services.development]
+run = "pnpm --filter @workspace/usalb-radio run dev"
+
+[services.production]
+build = [ "pnpm", "--filter", "@workspace/usalb-radio", "run", "build" ]
+publicDir = "artifacts/usalb-radio/dist/public"
+serve = "static"
+
+[[services.production.rewrites]]
+from = "/*"
+to = "/index.html"
+
+[services.env]
+PORT = "19604"
+BASE_PATH = "/"
