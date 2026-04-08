@@ -13,16 +13,13 @@ const isIOS = /iP(hone|ad|od)/.test(ua);
 const isAndroid = /Android/.test(ua);
 const isInFBBrowser = /FBAN|FBAV|FBIOS|FB_IAB|Instagram|Messenger/.test(ua);
 
-function openInSystemBrowser() {
+function openInSystemBrowser(setShowIOSHelp: (v: boolean) => void) {
   if (isAndroid) {
-    // Android: intent URL forces Chrome to open
-    window.location.href = `intent://${APP_URL.replace(/^https?:\/\//, "")}#Intent;scheme=https;package=com.android.chrome;end`;
+    // Android: intent URL opens in the default browser
+    window.location.href = `intent://${APP_URL.replace(/^https?:\/\//, "")}#Intent;scheme=https;end`;
   } else if (isIOS) {
-    // iOS: try Chrome deep link, fallback to Safari
-    window.location.href = `googlechrome://${APP_URL.replace(/^https?:\/\//, "")}`;
-    setTimeout(() => {
-      window.location.href = `https://usalb-radio--usalbtv.replit.app/`;
-    }, 1000);
+    // iOS: can't open Safari programmatically — show step-by-step instructions
+    setShowIOSHelp(true);
   } else {
     window.open(APP_URL, "_blank");
   }
