@@ -1,8 +1,9 @@
 import React, { useState, useRef, useEffect } from "react";
-import { Play, Pause, Volume2, VolumeX, Radio } from "lucide-react";
+import { Play, Pause, Volume2, VolumeX, Radio, Copy, Check } from "lucide-react";
 import { Slider } from "@/components/ui/slider";
 import { cn } from "@/lib/utils";
 import logoSrc from "@assets/usalbradio_1775675611808.jpg";
+import { SiFacebook, SiWhatsapp, SiX } from "react-icons/si";
 
 const STREAM_URL = "https://uk4freenew.listen2myradio.com/live.mp3?typeportmount=s1_9311_stream_53436989";
 
@@ -14,6 +15,26 @@ export default function Home() {
   const [volume, setVolume] = useState(0.8);
   const [isMuted, setIsMuted] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
+  const [copied, setCopied] = useState(false);
+
+  const shareUrl = window.location.href;
+  const shareText = "Listen to USALB RADIO — live Albanian broadcast!";
+
+  const shareOn = (platform: "facebook" | "whatsapp" | "x") => {
+    const urls = {
+      facebook: `https://www.facebook.com/sharer/sharer.php?u=${encodeURIComponent(shareUrl)}`,
+      whatsapp: `https://wa.me/?text=${encodeURIComponent(shareText + " " + shareUrl)}`,
+      x: `https://twitter.com/intent/tweet?text=${encodeURIComponent(shareText)}&url=${encodeURIComponent(shareUrl)}`,
+    };
+    window.open(urls[platform], "_blank", "noopener,noreferrer");
+  };
+
+  const copyLink = () => {
+    navigator.clipboard.writeText(shareUrl).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    });
+  };
   
   const togglePlay = () => {
     if (audioRef.current) {
@@ -184,6 +205,49 @@ export default function Home() {
                 />
               </div>
             )}
+            {/* Share Buttons */}
+            <div className="w-full mt-6">
+              <p className="text-center text-xs text-gray-500 uppercase tracking-widest mb-3">Share</p>
+              <div className="flex items-center justify-center gap-3">
+                <button
+                  onClick={() => shareOn("facebook")}
+                  data-testid="button-share-facebook"
+                  className="flex items-center gap-2 bg-[#1877F2]/20 hover:bg-[#1877F2]/40 text-[#1877F2] border border-[#1877F2]/30 px-4 py-2 rounded-xl text-sm font-medium transition-all duration-200"
+                >
+                  <SiFacebook className="w-4 h-4" />
+                  Facebook
+                </button>
+                <button
+                  onClick={() => shareOn("whatsapp")}
+                  data-testid="button-share-whatsapp"
+                  className="flex items-center gap-2 bg-[#25D366]/20 hover:bg-[#25D366]/40 text-[#25D366] border border-[#25D366]/30 px-4 py-2 rounded-xl text-sm font-medium transition-all duration-200"
+                >
+                  <SiWhatsapp className="w-4 h-4" />
+                  WhatsApp
+                </button>
+                <button
+                  onClick={() => shareOn("x")}
+                  data-testid="button-share-x"
+                  className="flex items-center gap-2 bg-white/10 hover:bg-white/20 text-white border border-white/20 px-4 py-2 rounded-xl text-sm font-medium transition-all duration-200"
+                >
+                  <SiX className="w-4 h-4" />
+                  X
+                </button>
+                <button
+                  onClick={copyLink}
+                  data-testid="button-copy-link"
+                  className={cn(
+                    "flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-medium border transition-all duration-200",
+                    copied
+                      ? "bg-green-500/20 text-green-400 border-green-500/30"
+                      : "bg-white/5 hover:bg-white/10 text-gray-400 border-white/10"
+                  )}
+                >
+                  {copied ? <Check className="w-4 h-4" /> : <Copy className="w-4 h-4" />}
+                  {copied ? "Copied!" : "Copy"}
+                </button>
+              </div>
+            </div>
           </div>
         </div>
 
