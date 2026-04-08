@@ -60,6 +60,13 @@ export default function Home() {
   useEffect(() => {
     if (audioRef.current) {
       audioRef.current.volume = volume;
+      setIsLoading(true);
+      audioRef.current.play().then(() => {
+        setIsPlaying(true);
+        setIsLoading(false);
+      }).catch(() => {
+        setIsLoading(false);
+      });
     }
   }, []);
 
@@ -177,7 +184,7 @@ export default function Home() {
       <audio 
         ref={audioRef} 
         src={STREAM_URL}
-        preload="none"
+        preload="auto"
       />
     </div>
   );
