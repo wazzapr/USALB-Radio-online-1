@@ -1,9 +1,9 @@
 import React, { useState, useRef, useEffect } from "react";
-import { Play, Pause, Volume2, VolumeX, Radio, Copy, Check } from "lucide-react";
+import { Play, Pause, Volume2, VolumeX, Radio, Copy, Check, Share2 } from "lucide-react";
 import { Slider } from "@/components/ui/slider";
 import { cn } from "@/lib/utils";
 import logoSrc from "@assets/usalbradio_1775675611808.jpg";
-import { SiFacebook, SiWhatsapp, SiX } from "react-icons/si";
+import { SiFacebook, SiWhatsapp, SiX, SiMessenger } from "react-icons/si";
 
 const STREAM_URL = "https://uk4freenew.listen2myradio.com/live.mp3?typeportmount=s1_9311_stream_53436989";
 
@@ -16,22 +16,37 @@ export default function Home() {
   const [isMuted, setIsMuted] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [shareOpen, setShareOpen] = useState(false);
+  const shareRef = useRef<HTMLDivElement>(null);
 
   const shareUrl = window.location.href;
   const shareText = "Listen to USALB RADIO — live Albanian broadcast!";
 
-  const shareOn = (platform: "facebook" | "whatsapp" | "x") => {
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (shareRef.current && !shareRef.current.contains(e.target as Node)) {
+        setShareOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, []);
+
+  const shareOn = (platform: "facebook" | "messenger" | "whatsapp" | "x") => {
     const urls = {
       facebook: `https://www.facebook.com/sharer/sharer.php?u=${encodeURIComponent(shareUrl)}`,
+      messenger: `fb-messenger://share?link=${encodeURIComponent(shareUrl)}`,
       whatsapp: `https://wa.me/?text=${encodeURIComponent(shareText + " " + shareUrl)}`,
       x: `https://twitter.com/intent/tweet?text=${encodeURIComponent(shareText)}&url=${encodeURIComponent(shareUrl)}`,
     };
     window.open(urls[platform], "_blank", "noopener,noreferrer");
+    setShareOpen(false);
   };
 
   const copyLink = () => {
     navigator.clipboard.writeText(shareUrl).then(() => {
       setCopied(true);
+      setShareOpen(false);
       setTimeout(() => setCopied(false), 2000);
     });
   };
@@ -205,48 +220,74 @@ export default function Home() {
                 />
               </div>
             )}
-            {/* Share Buttons */}
-            <div className="w-full mt-6">
-              <p className="text-center text-xs text-gray-500 uppercase tracking-widest mb-3">Share</p>
-              <div className="flex items-center justify-center gap-3">
-                <button
-                  onClick={() => shareOn("facebook")}
-                  data-testid="button-share-facebook"
-                  className="flex items-center gap-2 bg-[#1877F2]/20 hover:bg-[#1877F2]/40 text-[#1877F2] border border-[#1877F2]/30 px-4 py-2 rounded-xl text-sm font-medium transition-all duration-200"
-                >
-                  <SiFacebook className="w-4 h-4" />
-                  Facebook
-                </button>
-                <button
-                  onClick={() => shareOn("whatsapp")}
-                  data-testid="button-share-whatsapp"
-                  className="flex items-center gap-2 bg-[#25D366]/20 hover:bg-[#25D366]/40 text-[#25D366] border border-[#25D366]/30 px-4 py-2 rounded-xl text-sm font-medium transition-all duration-200"
-                >
-                  <SiWhatsapp className="w-4 h-4" />
-                  WhatsApp
-                </button>
-                <button
-                  onClick={() => shareOn("x")}
-                  data-testid="button-share-x"
-                  className="flex items-center gap-2 bg-white/10 hover:bg-white/20 text-white border border-white/20 px-4 py-2 rounded-xl text-sm font-medium transition-all duration-200"
-                >
-                  <SiX className="w-4 h-4" />
-                  X
-                </button>
-                <button
-                  onClick={copyLink}
-                  data-testid="button-copy-link"
-                  className={cn(
-                    "flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-medium border transition-all duration-200",
-                    copied
-                      ? "bg-green-500/20 text-green-400 border-green-500/30"
-                      : "bg-white/5 hover:bg-white/10 text-gray-400 border-white/10"
-                  )}
-                >
-                  {copied ? <Check className="w-4 h-4" /> : <Copy className="w-4 h-4" />}
-                  {copied ? "Copied!" : "Copy"}
-                </button>
-              </div>
+            {/* Share Button + Popup */}
+            <div className="w-full mt-6 relative" ref={shareRef}>
+              <button
+                onClick={() => setShareOpen((o) => !o)}
+                data-testid="button-share"
+                className={cn(
+                  "w-full flex items-center justify-center gap-2 py-3 rounded-2xl border text-sm font-medium transition-all duration-200",
+                  shareOpen
+                    ? "bg-white/10 border-white/20 text-white"
+                    : "bg-white/5 border-white/10 text-gray-300 hover:bg-white/10 hover:text-white"
+                )}
+              >
+                {copied ? <Check className="w-4 h-4 text-green-400" /> : <Share2 className="w-4 h-4" />}
+                {copied ? "Link copied!" : "Share"}
+              </button>
+
+              {shareOpen && (
+                <div className="absolute bottom-full left-0 right-0 mb-3 bg-[#1a1a1a] border border-white/10 rounded-2xl overflow-hidden shadow-[0_-8px_30px_rgba(0,0,0,0.5)] z-50">
+                  <p className="text-center text-xs text-gray-500 uppercase tracking-widest py-3 border-b border-white/5">
+                    Share via
+                  </p>
+                  <div className="p-2 flex flex-col gap-1">
+                    <button
+                      onClick={() => shareOn("facebook")}
+                      data-testid="button-share-facebook"
+                      className="flex items-center gap-3 px-4 py-3 rounded-xl hover:bg-white/5 transition-colors text-left w-full"
+                    >
+                      <div className="w-9 h-9 rounded-full bg-[#1877F2] flex items-center justify-center shrink-0">
+                        <SiFacebook className="w-4 h-4 text-white" />
+                      </div>
+                      <span className="text-white font-medium text-sm">Facebook</span>
+                    </button>
+                    <button
+                      onClick={() => shareOn("messenger")}
+                      data-testid="button-share-messenger"
+                      className="flex items-center gap-3 px-4 py-3 rounded-xl hover:bg-white/5 transition-colors text-left w-full"
+                    >
+                      <div className="w-9 h-9 rounded-full bg-gradient-to-br from-[#00B2FF] to-[#006AFF] flex items-center justify-center shrink-0">
+                        <SiMessenger className="w-4 h-4 text-white" />
+                      </div>
+                      <span className="text-white font-medium text-sm">Messenger</span>
+                    </button>
+                    <button
+                      onClick={() => shareOn("whatsapp")}
+                      data-testid="button-share-whatsapp"
+                      className="flex items-center gap-3 px-4 py-3 rounded-xl hover:bg-white/5 transition-colors text-left w-full"
+                    >
+                      <div className="w-9 h-9 rounded-full bg-[#25D366] flex items-center justify-center shrink-0">
+                        <SiWhatsapp className="w-4 h-4 text-white" />
+                      </div>
+                      <span className="text-white font-medium text-sm">WhatsApp</span>
+                    </button>
+                    <button
+                      onClick={copyLink}
+                      data-testid="button-copy-link"
+                      className="flex items-center gap-3 px-4 py-3 rounded-xl hover:bg-white/5 transition-colors text-left w-full"
+                    >
+                      <div className={cn(
+                        "w-9 h-9 rounded-full flex items-center justify-center shrink-0 transition-colors",
+                        copied ? "bg-green-500" : "bg-white/10"
+                      )}>
+                        {copied ? <Check className="w-4 h-4 text-white" /> : <Copy className="w-4 h-4 text-white" />}
+                      </div>
+                      <span className="text-white font-medium text-sm">{copied ? "Copied!" : "Copy link"}</span>
+                    </button>
+                  </div>
+                </div>
+              )}
             </div>
           </div>
         </div>
