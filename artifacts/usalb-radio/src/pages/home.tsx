@@ -6,8 +6,27 @@ import logoSrc from "@assets/usalbradio_1775675611808.jpg";
 import { SiFacebook, SiWhatsapp, SiX, SiMessenger } from "react-icons/si";
 
 const STREAM_URL = "https://uk4freenew.listen2myradio.com/live.mp3?typeportmount=s1_9311_stream_53436989";
+const APP_URL = "https://usalb-radio--usalbtv.replit.app/";
 
-const isIOS = /iP(hone|ad|od)/.test(navigator.userAgent);
+const ua = navigator.userAgent;
+const isIOS = /iP(hone|ad|od)/.test(ua);
+const isAndroid = /Android/.test(ua);
+const isInFBBrowser = /FBAN|FBAV|FBIOS|FB_IAB|Instagram|Messenger/.test(ua);
+
+function openInSystemBrowser() {
+  if (isAndroid) {
+    // Android: intent URL forces Chrome to open
+    window.location.href = `intent://${APP_URL.replace(/^https?:\/\//, "")}#Intent;scheme=https;package=com.android.chrome;end`;
+  } else if (isIOS) {
+    // iOS: try Chrome deep link, fallback to Safari
+    window.location.href = `googlechrome://${APP_URL.replace(/^https?:\/\//, "")}`;
+    setTimeout(() => {
+      window.location.href = `https://usalb-radio--usalbtv.replit.app/`;
+    }, 1000);
+  } else {
+    window.open(APP_URL, "_blank");
+  }
+}
 
 export default function Home() {
   const audioRef = useRef<HTMLAudioElement>(null);
@@ -110,6 +129,22 @@ export default function Home() {
 
   return (
     <div className="min-h-[100dvh] bg-black text-white flex flex-col items-center justify-center relative overflow-hidden font-sans">
+      {/* Open-in-Browser Banner — only visible inside Facebook / Messenger */}
+      {isInFBBrowser && (
+        <div className="fixed top-0 left-0 right-0 z-50 bg-[#1877F2] px-4 py-3 flex items-center justify-between gap-3 shadow-lg">
+          <p className="text-white text-sm font-medium leading-tight">
+            For the best experience and sound, open in your browser.
+          </p>
+          <button
+            onClick={openInSystemBrowser}
+            data-testid="button-open-in-browser"
+            className="shrink-0 bg-white text-[#1877F2] text-sm font-bold px-4 py-1.5 rounded-full hover:bg-gray-100 transition-colors"
+          >
+            Open
+          </button>
+        </div>
+      )}
+
       {/* Background Ambience */}
       <div className="absolute inset-0 z-0">
         <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[800px] h-[800px] bg-red-900/20 rounded-full blur-[120px] pointer-events-none mix-blend-screen opacity-50" />
