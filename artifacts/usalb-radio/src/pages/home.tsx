@@ -96,21 +96,16 @@ export default function Home() {
   };
 
   useEffect(() => {
-    const audio = audioRef.current;
-    if (!audio) return;
-    audio.volume = volume;
-    // Start muted — browsers allow muted autoplay — then unmute immediately
-    audio.muted = true;
-    setIsLoading(true);
-    audio.play().then(() => {
-      audio.muted = false;
-      setIsPlaying(true);
-      setIsLoading(false);
-    }).catch(() => {
-      // Autoplay fully blocked — user must press play
-      audio.muted = false;
-      setIsLoading(false);
-    });
+    if (audioRef.current) {
+      audioRef.current.volume = volume;
+      setIsLoading(true);
+      audioRef.current.play().then(() => {
+        setIsPlaying(true);
+        setIsLoading(false);
+      }).catch(() => {
+        setIsLoading(false);
+      });
+    }
   }, []);
 
   return (
