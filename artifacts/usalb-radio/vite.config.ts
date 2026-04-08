@@ -26,9 +26,19 @@ if (!basePath) {
   );
 }
 
+const replitDomains = process.env.REPLIT_DOMAINS ?? "";
+const primaryDomain = replitDomains.split(",")[0]?.trim() ?? "";
+const appBaseUrl = primaryDomain ? `https://${primaryDomain}` : "";
+
 export default defineConfig({
   base: basePath,
   plugins: [
+    {
+      name: "inject-og-absolute-url",
+      transformIndexHtml(html: string) {
+        return html.replace(/__APP_BASE_URL__/g, appBaseUrl);
+      },
+    },
     react(),
     tailwindcss(),
     runtimeErrorOverlay(),
