@@ -2,6 +2,7 @@ import React, { useState, useRef, useEffect } from "react";
 import { Play, Pause, Volume2, VolumeX, Radio } from "lucide-react";
 import { Slider } from "@/components/ui/slider";
 import { cn } from "@/lib/utils";
+import logoSrc from "@assets/usalbradio_1775675611808.jpg";
 
 const STREAM_URL = "https://uk4freenew.listen2myradio.com/live.mp3?typeportmount=s1_9311_stream_53436989";
 
@@ -91,15 +92,14 @@ export default function Home() {
               </span>
             </div>
 
-            {/* Title / Branding */}
+            {/* Logo / Branding */}
             <div className="mb-12 text-center">
-              <h1 className="text-5xl font-black tracking-tighter text-white mb-2 drop-shadow-[0_0_15px_rgba(255,255,255,0.1)] flex items-center justify-center gap-3">
-                USALB
-                <span className="text-red-600">RADIO</span>
-              </h1>
-              <p className="text-red-400/80 text-sm tracking-[0.2em] font-light">
-                THE BEAT OF THE DIASPORA
-              </p>
+              <img
+                src={logoSrc}
+                alt="USALB RADIO"
+                className="w-full max-w-xs mx-auto rounded-xl"
+                data-testid="img-logo"
+              />
             </div>
 
             {/* Visualizer (Fake) */}
