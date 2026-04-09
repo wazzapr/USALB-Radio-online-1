@@ -1,5 +1,5 @@
-import React, { useState, useRef, useEffect } from "react";
-import { Play, Pause, Volume2, VolumeX, Radio, Copy, Check, Share2 } from "lucide-react";
+import React, { useState, useRef, useEffect, useCallback } from "react";
+import { Play, Pause, Volume2, VolumeX, Radio, Copy, Check, Share2, RefreshCw, WifiOff } from "lucide-react";
 import { Slider } from "@/components/ui/slider";
 import { cn } from "@/lib/utils";
 import logoSrc from "@assets/usalbradio_1775675611808.jpg";
@@ -31,10 +31,14 @@ export default function Home() {
   const [volume, setVolume] = useState(0.8);
   const [isMuted, setIsMuted] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
+  const [streamOffline, setStreamOffline] = useState(false);
+  const [retryCountdown, setRetryCountdown] = useState(0);
   const [copied, setCopied] = useState(false);
   const [shareOpen, setShareOpen] = useState(false);
   const [showIOSHelp, setShowIOSHelp] = useState(false);
   const shareRef = useRef<HTMLDivElement>(null);
+  const retryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const countdownRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   // Use a ref for the stream URL so updating it NEVER causes a re-render
   // or audio interruption. The audio element src is set imperatively.
@@ -99,25 +103,65 @@ export default function Home() {
     });
   };
   
-  const togglePlay = () => {
+  const clearRetryTimers = useCallback(() => {
+    if (retryTimerRef.current) clearTimeout(retryTimerRef.current);
+    if (countdownRef.current) clearInterval(countdownRef.current);
+    setRetryCountdown(0);
+  }, []);
+
+  const startRetryCountdown = useCallback((seconds: number, onRetry: () => void) => {
+    clearRetryTimers();
+    setRetryCountdown(seconds);
+    countdownRef.current = setInterval(() => {
+      setRetryCountdown((n) => {
+        if (n <= 1) {
+          if (countdownRef.current) clearInterval(countdownRef.current);
+          return 0;
+        }
+        return n - 1;
+      });
+    }, 1000);
+    retryTimerRef.current = setTimeout(onRetry, seconds * 1000);
+  }, [clearRetryTimers]);
+
+  const attemptPlay = useCallback(async () => {
     const audio = audioRef.current;
     if (!audio) return;
-    if (isPlaying) {
-      audio.pause();
-      setIsPlaying(false);
-    } else {
-      // Always ensure we're using the latest known-good URL before playing
-      if (audio.src !== streamUrlRef.current) {
-        audio.src = streamUrlRef.current;
+    // Fetch fresh URL before each play attempt
+    try {
+      const res = await fetch("/api/stream-url");
+      if (res.ok) {
+        const data = await res.json();
+        if (data.url) {
+          streamUrlRef.current = data.url;
+          audio.src = data.url;
+        }
       }
-      setIsLoading(true);
-      audio.play().then(() => {
-        setIsPlaying(true);
-        setIsLoading(false);
-      }).catch((err) => {
-        console.error("Playback failed:", err);
-        setIsLoading(false);
-      });
+    } catch { /* use existing src */ }
+
+    setIsLoading(true);
+    setStreamOffline(false);
+    try {
+      await audio.play();
+      setIsPlaying(true);
+      setIsLoading(false);
+      clearRetryTimers();
+    } catch {
+      setIsLoading(false);
+      setIsPlaying(false);
+      setStreamOffline(true);
+      startRetryCountdown(30, attemptPlay);
+    }
+  }, [clearRetryTimers, startRetryCountdown]);
+
+  const togglePlay = () => {
+    if (isPlaying) {
+      audioRef.current?.pause();
+      setIsPlaying(false);
+      clearRetryTimers();
+      setStreamOffline(false);
+    } else {
+      attemptPlay();
     }
   };
 
@@ -147,19 +191,48 @@ export default function Home() {
     }
   };
 
-  // Attempt autoplay once on mount. Browsers block this silently on mobile,
-  // so a failed attempt just leaves the play button for the user to tap.
+  // Attempt autoplay once on mount.
   useEffect(() => {
     const audio = audioRef.current;
     if (!audio) return;
     audio.volume = volume;
-    audio.play().then(() => {
-      setIsPlaying(true);
-    }).catch(() => {
-      // Autoplay blocked — user will tap play manually, which is fine
-    });
+    // Autoplay is blocked on most mobile browsers — that's fine, user taps play
+    audio.play().then(() => setIsPlaying(true)).catch(() => {});
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // Listen for mid-stream errors and disconnects
+  useEffect(() => {
+    const audio = audioRef.current;
+    if (!audio) return;
+    const handleError = () => {
+      if (!isPlayingRef.current) return; // Only care about errors while trying to play
+      setIsPlaying(false);
+      setIsLoading(false);
+      setStreamOffline(true);
+      startRetryCountdown(30, attemptPlay);
+    };
+    const handleStall = () => {
+      // If the stream stalls for more than 10 seconds, treat as offline
+      const stallTimeout = setTimeout(() => {
+        if (isPlayingRef.current) {
+          audio.pause();
+          setIsPlaying(false);
+          setStreamOffline(true);
+          startRetryCountdown(15, attemptPlay);
+        }
+      }, 10000);
+      const onPlaying = () => clearTimeout(stallTimeout);
+      audio.addEventListener("playing", onPlaying, { once: true });
+    };
+    audio.addEventListener("error", handleError);
+    audio.addEventListener("stalled", handleStall);
+    return () => {
+      audio.removeEventListener("error", handleError);
+      audio.removeEventListener("stalled", handleStall);
+    };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [attemptPlay, startRetryCountdown]);
 
   return (
     <div className="min-h-[100dvh] bg-black text-white flex flex-col items-center justify-center relative overflow-hidden font-sans">
@@ -262,9 +335,11 @@ export default function Home() {
             <button
               onClick={togglePlay}
               className={cn(
-                "w-28 h-28 rounded-full flex items-center justify-center transition-all duration-500 relative group/btn mb-12",
+                "w-28 h-28 rounded-full flex items-center justify-center transition-all duration-500 relative group/btn mb-4",
                 isPlaying 
                   ? "bg-red-700 hover:bg-red-600 text-white shadow-[0_0_40px_rgba(220,38,38,0.5)]" 
+                  : streamOffline
+                  ? "bg-gray-800 text-gray-400 hover:bg-gray-700 hover:text-white"
                   : "bg-white text-red-700 hover:bg-gray-100 hover:scale-105 shadow-[0_0_30px_rgba(255,255,255,0.1)]"
               )}
             >
@@ -272,6 +347,8 @@ export default function Home() {
                 <div className="w-10 h-10 border-4 border-current border-t-transparent rounded-full animate-spin" />
               ) : isPlaying ? (
                 <Pause className="w-12 h-12 fill-current" />
+              ) : streamOffline ? (
+                <RefreshCw className="w-10 h-10" />
               ) : (
                 <Play className="w-12 h-12 fill-current ml-2" />
               )}
@@ -281,6 +358,24 @@ export default function Home() {
                 <div className="absolute inset-0 rounded-full border border-red-500 animate-[ping_2s_cubic-bezier(0,0,0.2,1)_infinite] opacity-75" />
               )}
             </button>
+
+            {/* Offline / Retry Status */}
+            {streamOffline && !isLoading && (
+              <div className="mb-8 flex flex-col items-center gap-2 text-center">
+                <div className="flex items-center gap-2 text-yellow-500">
+                  <WifiOff className="w-4 h-4" />
+                  <span className="text-sm font-medium">Stream temporarily offline</span>
+                </div>
+                {retryCountdown > 0 ? (
+                  <p className="text-xs text-gray-500">
+                    Retrying in <span className="text-gray-300 font-medium">{retryCountdown}s</span> — or tap above to retry now
+                  </p>
+                ) : (
+                  <p className="text-xs text-gray-500">Tap the button above to retry</p>
+                )}
+              </div>
+            )}
+            {!streamOffline && <div className="mb-8" />}
 
             {/* Volume Control */}
             {isIOS ? (
