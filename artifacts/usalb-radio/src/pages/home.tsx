@@ -34,8 +34,13 @@ export default function Home() {
   const [copied, setCopied] = useState(false);
   const [shareOpen, setShareOpen] = useState(false);
   const [showIOSHelp, setShowIOSHelp] = useState(false);
-  const [streamUrl, setStreamUrl] = useState(FALLBACK_STREAM_URL);
   const shareRef = useRef<HTMLDivElement>(null);
+
+  // Use a ref for the stream URL so updating it NEVER causes a re-render
+  // or audio interruption. The audio element src is set imperatively.
+  const streamUrlRef = useRef(FALLBACK_STREAM_URL);
+  const isPlayingRef = useRef(false);
+  useEffect(() => { isPlayingRef.current = isPlaying; }, [isPlaying]);
 
   const shareUrl = window.location.href;
   const shareText = "Listen to USALB RADIO — live Albanian broadcast!";
@@ -50,34 +55,28 @@ export default function Home() {
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
 
-  // Fetch the live stream URL from the API on mount only.
-  // Background interval only updates the URL when the radio is NOT playing,
-  // so it never interrupts an active stream.
+  // Fetch the live stream URL. Store it in a ref only.
+  // If the radio is already playing, leave it completely alone.
+  // If not playing, update the audio src so the next play uses the fresh URL.
   useEffect(() => {
     let cancelled = false;
-    const load = async (isBackground = false) => {
+    const fetchUrl = async () => {
       try {
         const res = await fetch("/api/stream-url");
         if (!res.ok) throw new Error("API error");
         const data = await res.json();
-        if (!cancelled && data.url) {
-          if (!isBackground) {
-            // Initial load — always apply the URL
-            setStreamUrl(data.url);
-          } else {
-            // Background refresh — only update if the radio is paused/stopped
-            setIsPlaying((playing) => {
-              if (!playing) setStreamUrl(data.url);
-              return playing;
-            });
-          }
+        if (cancelled || !data.url) return;
+        streamUrlRef.current = data.url;
+        // Only update the audio element src if the radio is not currently playing
+        if (audioRef.current && !isPlayingRef.current) {
+          audioRef.current.src = data.url;
         }
       } catch {
-        // Keep the URL already set
+        // Keep the fallback already set on the audio element
       }
     };
-    load(false);
-    const interval = setInterval(() => load(true), 5 * 60 * 1000);
+    fetchUrl();
+    const interval = setInterval(fetchUrl, 5 * 60 * 1000);
     return () => { cancelled = true; clearInterval(interval); };
   }, []);
 
@@ -101,20 +100,24 @@ export default function Home() {
   };
   
   const togglePlay = () => {
-    if (audioRef.current) {
-      if (isPlaying) {
-        audioRef.current.pause();
-        setIsPlaying(false);
-      } else {
-        setIsLoading(true);
-        audioRef.current.play().then(() => {
-          setIsPlaying(true);
-          setIsLoading(false);
-        }).catch((err) => {
-          console.error("Playback failed:", err);
-          setIsLoading(false);
-        });
+    const audio = audioRef.current;
+    if (!audio) return;
+    if (isPlaying) {
+      audio.pause();
+      setIsPlaying(false);
+    } else {
+      // Always ensure we're using the latest known-good URL before playing
+      if (audio.src !== streamUrlRef.current) {
+        audio.src = streamUrlRef.current;
       }
+      setIsLoading(true);
+      audio.play().then(() => {
+        setIsPlaying(true);
+        setIsLoading(false);
+      }).catch((err) => {
+        console.error("Playback failed:", err);
+        setIsLoading(false);
+      });
     }
   };
 
@@ -144,21 +147,19 @@ export default function Home() {
     }
   };
 
+  // Attempt autoplay once on mount. Browsers block this silently on mobile,
+  // so a failed attempt just leaves the play button for the user to tap.
   useEffect(() => {
     const audio = audioRef.current;
     if (!audio) return;
     audio.volume = volume;
-    // When the stream URL updates, reload the audio source
-    audio.load();
-    setIsLoading(true);
     audio.play().then(() => {
       setIsPlaying(true);
-      setIsLoading(false);
     }).catch(() => {
-      setIsLoading(false);
+      // Autoplay blocked — user will tap play manually, which is fine
     });
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [streamUrl]);
+  }, []);
 
   return (
     <div className="min-h-[100dvh] bg-black text-white flex flex-col items-center justify-center relative overflow-hidden font-sans">
@@ -393,7 +394,7 @@ export default function Home() {
 
       <audio 
         ref={audioRef} 
-        src={streamUrl}
+        src={FALLBACK_STREAM_URL}
         preload="auto"
       />
     </div>
