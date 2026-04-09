@@ -5,7 +5,7 @@ import { cn } from "@/lib/utils";
 import logoSrc from "@assets/usalbradio_1775675611808.jpg";
 import { SiFacebook, SiWhatsapp, SiX, SiMessenger } from "react-icons/si";
 
-const STREAM_URL = "https://uk4freenew.listen2myradio.com/live.mp3?typeportmount=s1_9311_stream_53436989";
+const FALLBACK_STREAM_URL = "https://uk4freenew.listen2myradio.com/live.mp3?typeportmount=s1_9311_stream_687568716";
 const APP_URL = "https://usalb-radio--usalbtv.replit.app/";
 
 const ua = navigator.userAgent;
@@ -33,6 +33,8 @@ export default function Home() {
   const [isLoading, setIsLoading] = useState(false);
   const [copied, setCopied] = useState(false);
   const [shareOpen, setShareOpen] = useState(false);
+  const [showIOSHelp, setShowIOSHelp] = useState(false);
+  const [streamUrl, setStreamUrl] = useState(FALLBACK_STREAM_URL);
   const shareRef = useRef<HTMLDivElement>(null);
 
   const shareUrl = window.location.href;
@@ -46,6 +48,24 @@ export default function Home() {
     };
     document.addEventListener("mousedown", handleClickOutside);
     return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, []);
+
+  // Fetch the live stream URL from the API (re-checks every 5 minutes)
+  useEffect(() => {
+    let cancelled = false;
+    const load = async () => {
+      try {
+        const res = await fetch("/api/stream-url");
+        if (!res.ok) throw new Error("API error");
+        const data = await res.json();
+        if (!cancelled && data.url) setStreamUrl(data.url);
+      } catch {
+        // Keep the fallback URL already set
+      }
+    };
+    load();
+    const interval = setInterval(load, 5 * 60 * 1000);
+    return () => { cancelled = true; clearInterval(interval); };
   }, []);
 
   const shareOn = (platform: "facebook" | "messenger" | "whatsapp" | "x") => {
@@ -112,17 +132,20 @@ export default function Home() {
   };
 
   useEffect(() => {
-    if (audioRef.current) {
-      audioRef.current.volume = volume;
-      setIsLoading(true);
-      audioRef.current.play().then(() => {
-        setIsPlaying(true);
-        setIsLoading(false);
-      }).catch(() => {
-        setIsLoading(false);
-      });
-    }
-  }, []);
+    const audio = audioRef.current;
+    if (!audio) return;
+    audio.volume = volume;
+    // When the stream URL updates, reload the audio source
+    audio.load();
+    setIsLoading(true);
+    audio.play().then(() => {
+      setIsPlaying(true);
+      setIsLoading(false);
+    }).catch(() => {
+      setIsLoading(false);
+    });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [streamUrl]);
 
   return (
     <div className="min-h-[100dvh] bg-black text-white flex flex-col items-center justify-center relative overflow-hidden font-sans">
@@ -133,12 +156,36 @@ export default function Home() {
             For the best experience and sound, open in your browser.
           </p>
           <button
-            onClick={openInSystemBrowser}
+            onClick={() => openInSystemBrowser(setShowIOSHelp)}
             data-testid="button-open-in-browser"
             className="shrink-0 bg-white text-[#1877F2] text-sm font-bold px-4 py-1.5 rounded-full hover:bg-gray-100 transition-colors"
           >
             Open
           </button>
+        </div>
+      )}
+
+      {/* iOS Safari Instructions Modal */}
+      {showIOSHelp && (
+        <div className="fixed inset-0 z-[100] flex items-end justify-center bg-black/70 backdrop-blur-sm" onClick={() => setShowIOSHelp(false)}>
+          <div className="bg-[#1c1c1e] rounded-t-3xl w-full max-w-md p-6 pb-10 shadow-2xl" onClick={(e) => e.stopPropagation()}>
+            <div className="w-10 h-1 bg-white/20 rounded-full mx-auto mb-6" />
+            <h2 className="text-white text-lg font-semibold mb-2 text-center">Open in Safari</h2>
+            <p className="text-gray-400 text-sm text-center mb-6">Facebook can't open Safari directly. Follow these steps:</p>
+            <ol className="space-y-4 mb-8">
+              <li className="flex items-start gap-3">
+                <span className="w-7 h-7 rounded-full bg-red-600 flex items-center justify-center text-white text-xs font-bold shrink-0">1</span>
+                <p className="text-white text-sm pt-0.5">Tap the <strong>⋯</strong> button in the top-right corner of the screen</p>
+              </li>
+              <li className="flex items-start gap-3">
+                <span className="w-7 h-7 rounded-full bg-red-600 flex items-center justify-center text-white text-xs font-bold shrink-0">2</span>
+                <p className="text-white text-sm pt-0.5">Tap <strong>"Open in Safari"</strong> from the menu</p>
+              </li>
+            </ol>
+            <button onClick={() => setShowIOSHelp(false)} className="w-full py-3 rounded-2xl bg-white/10 text-white text-sm font-medium hover:bg-white/20 transition-colors">
+              Got it
+            </button>
+          </div>
         </div>
       )}
 
@@ -333,7 +380,7 @@ export default function Home() {
 
       <audio 
         ref={audioRef} 
-        src={STREAM_URL}
+        src={streamUrl}
         preload="auto"
       />
     </div>
