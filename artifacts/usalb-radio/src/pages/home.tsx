@@ -50,21 +50,34 @@ export default function Home() {
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
 
-  // Fetch the live stream URL from the API (re-checks every 5 minutes)
+  // Fetch the live stream URL from the API on mount only.
+  // Background interval only updates the URL when the radio is NOT playing,
+  // so it never interrupts an active stream.
   useEffect(() => {
     let cancelled = false;
-    const load = async () => {
+    const load = async (isBackground = false) => {
       try {
         const res = await fetch("/api/stream-url");
         if (!res.ok) throw new Error("API error");
         const data = await res.json();
-        if (!cancelled && data.url) setStreamUrl(data.url);
+        if (!cancelled && data.url) {
+          if (!isBackground) {
+            // Initial load — always apply the URL
+            setStreamUrl(data.url);
+          } else {
+            // Background refresh — only update if the radio is paused/stopped
+            setIsPlaying((playing) => {
+              if (!playing) setStreamUrl(data.url);
+              return playing;
+            });
+          }
+        }
       } catch {
-        // Keep the fallback URL already set
+        // Keep the URL already set
       }
     };
-    load();
-    const interval = setInterval(load, 5 * 60 * 1000);
+    load(false);
+    const interval = setInterval(() => load(true), 5 * 60 * 1000);
     return () => { cancelled = true; clearInterval(interval); };
   }, []);
 
