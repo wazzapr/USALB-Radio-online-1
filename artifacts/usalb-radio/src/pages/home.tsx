@@ -39,6 +39,9 @@ export default function Home() {
   const shareRef = useRef<HTMLDivElement>(null);
   const retryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const countdownRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const primerIframeRef = useRef<HTMLIFrameElement | null>(null);
+  const streamOfflineRef = useRef(false);
+  useEffect(() => { streamOfflineRef.current = streamOffline; }, [streamOffline]);
 
   // Use a ref for the stream URL so updating it NEVER causes a re-render
   // or audio interruption. The audio element src is set imperatively.
@@ -124,35 +127,69 @@ export default function Home() {
     retryTimerRef.current = setTimeout(onRetry, seconds * 1000);
   }, [clearRetryTimers]);
 
-  const attemptPlay = useCallback(async () => {
+  const removePrimerIframe = useCallback(() => {
+    if (primerIframeRef.current) {
+      primerIframeRef.current.src = "about:blank";
+      primerIframeRef.current.remove();
+      primerIframeRef.current = null;
+    }
+  }, []);
+
+  const primerAndPlay = useCallback(async (audio: HTMLAudioElement, url: string) => {
+    // Open the official radio page in a hidden iframe to warm up the connection,
+    // then immediately attempt playback
+    removePrimerIframe();
+    const iframe = document.createElement("iframe");
+    iframe.style.cssText = "position:fixed;width:1px;height:1px;border:0;opacity:0;pointer-events:none;left:-9999px;top:-9999px;";
+    iframe.src = "https://usalbradio.radiostream321.com/";
+    document.body.appendChild(iframe);
+    primerIframeRef.current = iframe;
+
+    // Give it 2 seconds to establish the connection, then play
+    await new Promise(r => setTimeout(r, 2000));
+    removePrimerIframe();
+
+    audio.src = url + (url.includes("?") ? "&" : "?") + "_t=" + Date.now();
+    audio.load();
+    await audio.play();
+  }, [removePrimerIframe]);
+
+  const attemptPlay = useCallback(async (isRetry = false) => {
     const audio = audioRef.current;
     if (!audio) return;
-    // Fetch fresh URL before each play attempt
+    // Fetch fresh URL before each play attempt; bust server cache on retries
     try {
-      const res = await fetch("/api/stream-url");
+      const qs = isRetry ? "?fresh=1" : "";
+      const res = await fetch(`/api/stream-url${qs}`);
       if (res.ok) {
         const data = await res.json();
         if (data.url) {
           streamUrlRef.current = data.url;
-          audio.src = data.url;
         }
       }
-    } catch { /* use existing src */ }
+    } catch { /* use existing url */ }
 
     setIsLoading(true);
     setStreamOffline(false);
     try {
-      await audio.play();
+      if (isRetry) {
+        await primerAndPlay(audio, streamUrlRef.current);
+      } else {
+        audio.src = streamUrlRef.current;
+        audio.load();
+        await audio.play();
+      }
       setIsPlaying(true);
       setIsLoading(false);
       clearRetryTimers();
     } catch {
+      removePrimerIframe();
       setIsLoading(false);
       setIsPlaying(false);
       setStreamOffline(true);
-      startRetryCountdown(30, attemptPlay);
+      startRetryCountdown(10, () => attemptPlay(true));
     }
-  }, [clearRetryTimers, startRetryCountdown]);
+  }, [clearRetryTimers, startRetryCountdown, primerAndPlay, removePrimerIframe]);
 
   const togglePlay = () => {
     if (isPlaying) {
@@ -160,8 +197,9 @@ export default function Home() {
       setIsPlaying(false);
       clearRetryTimers();
       setStreamOffline(false);
+      removePrimerIframe();
     } else {
-      attemptPlay();
+      attemptPlay(streamOffline);
     }
   };
 
@@ -206,20 +244,19 @@ export default function Home() {
     const audio = audioRef.current;
     if (!audio) return;
     const handleError = () => {
-      if (!isPlayingRef.current) return; // Only care about errors while trying to play
+      if (!isPlayingRef.current) return;
       setIsPlaying(false);
       setIsLoading(false);
       setStreamOffline(true);
-      startRetryCountdown(30, attemptPlay);
+      startRetryCountdown(10, () => attemptPlay(true));
     };
     const handleStall = () => {
-      // If the stream stalls for more than 10 seconds, treat as offline
       const stallTimeout = setTimeout(() => {
         if (isPlayingRef.current) {
           audio.pause();
           setIsPlaying(false);
           setStreamOffline(true);
-          startRetryCountdown(15, attemptPlay);
+          startRetryCountdown(10, () => attemptPlay(true));
         }
       }, 10000);
       const onPlaying = () => clearTimeout(stallTimeout);
@@ -233,6 +270,19 @@ export default function Home() {
     };
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [attemptPlay, startRetryCountdown]);
+
+  // Reconnect automatically when the user returns to this tab while offline
+  useEffect(() => {
+    const handleVisibility = () => {
+      if (document.visibilityState === "visible" && streamOfflineRef.current) {
+        clearRetryTimers();
+        attemptPlay(true);
+      }
+    };
+    document.addEventListener("visibilitychange", handleVisibility);
+    return () => document.removeEventListener("visibilitychange", handleVisibility);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [attemptPlay, clearRetryTimers]);
 
   return (
     <div className="min-h-[100dvh] bg-black text-white flex flex-col items-center justify-center relative overflow-hidden font-sans">

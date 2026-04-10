@@ -37,6 +37,10 @@ async function fetchStreamUrl(): Promise<string> {
 }
 
 streamRouter.get("/stream-url", async (req, res) => {
+  if (req.query.fresh === "1") {
+    cachedUrl = null;
+    cacheExpiry = 0;
+  }
   try {
     const url = await fetchStreamUrl();
     res.json({ url, source: "live" });
