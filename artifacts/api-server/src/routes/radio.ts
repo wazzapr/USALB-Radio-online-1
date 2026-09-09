@@ -12,7 +12,13 @@ import {
 } from "@workspace/api-zod";
 import { db, stationSettingsTable } from "@workspace/db";
 import { eq } from "drizzle-orm";
-import { requireAuth } from "../middlewares/requireAuth";
+import {
+  accessKeyMatches,
+  clearAdminSession,
+  hasAdminSession,
+  requireAdminSession,
+  setAdminSession,
+} from "../middlewares/adminAuth";
 import {
   getStationSettings,
   isHttpUrl,
@@ -99,12 +105,34 @@ router.get("/live.mp3", async (req, res): Promise<void> => {
   }
 });
 
-router.get("/admin/station", requireAuth, async (_req, res): Promise<void> => {
+router.get("/admin/session", (req, res): void => {
+  res.json({ authenticated: hasAdminSession(req) });
+});
+
+router.post("/admin/login", (req, res): void => {
+  const accessKey =
+    typeof req.body?.accessKey === "string" ? req.body.accessKey : "";
+
+  if (!accessKey || !accessKeyMatches(accessKey)) {
+    res.status(401).json({ error: "Invalid station access key" });
+    return;
+  }
+
+  setAdminSession(res);
+  res.json({ authenticated: true });
+});
+
+router.post("/admin/logout", (_req, res): void => {
+  clearAdminSession(res);
+  res.json({ authenticated: false });
+});
+
+router.get("/admin/station", requireAdminSession, async (_req, res): Promise<void> => {
   const station = await getStationSettings();
   res.json(GetAdminStationResponse.parse(toAdminStation(station)));
 });
 
-router.put("/admin/station", requireAuth, async (req, res): Promise<void> => {
+router.put("/admin/station", requireAdminSession, async (req, res): Promise<void> => {
   const parsed = UpdateAdminStationBody.safeParse(req.body);
   if (!parsed.success) {
     res.status(400).json({ error: parsed.error.message });
@@ -133,7 +161,7 @@ router.put("/admin/station", requireAuth, async (req, res): Promise<void> => {
   res.json(UpdateAdminStationResponse.parse(toAdminStation(station)));
 });
 
-router.post("/admin/stream/test", requireAuth, async (req, res): Promise<void> => {
+router.post("/admin/stream/test", requireAdminSession, async (req, res): Promise<void> => {
   const parsed = TestAdminStreamBody.safeParse(req.body);
   if (!parsed.success || !isHttpUrl(parsed.data.sourceUrl)) {
     res.status(400).json({ error: "Use an http:// or https:// stream source URL" });

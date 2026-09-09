@@ -96,3 +96,12 @@ export interface StreamTestResult {
   contentType: string | null;
   message: string;
 }
+
+export interface AdminSession {
+  authenticated: boolean;
+}
+
+export interface AdminLoginInput {
+  /** @minLength 1 */
+  accessKey: string;
+}

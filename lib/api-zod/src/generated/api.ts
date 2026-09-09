@@ -106,6 +106,32 @@ export const UpdateAdminStationResponse = zod
   );
 
 /**
+ * @summary Check whether the private station session is active
+ */
+export const GetAdminSessionResponse = zod.object({
+  authenticated: zod.boolean(),
+});
+
+/**
+ * @summary Log in with the private station access key
+ */
+
+export const AdminLoginBody = zod.object({
+  accessKey: zod.string().min(1),
+});
+
+export const AdminLoginResponse = zod.object({
+  authenticated: zod.boolean(),
+});
+
+/**
+ * @summary End the private station session
+ */
+export const AdminLogoutResponse = zod.object({
+  authenticated: zod.boolean(),
+});
+
+/**
  * @summary Test a configured upstream stream source
  */
 export const TestAdminStreamBody = zod.object({

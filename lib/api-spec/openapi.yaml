@@ -70,7 +70,7 @@ paths:
       tags: [admin]
       summary: Get editable station settings
       security:
-        - clerkSession: []
+        - adminSession: []
       responses:
         "200":
           description: Editable station settings
@@ -85,7 +85,7 @@ paths:
       tags: [admin]
       summary: Update station settings and stream source
       security:
-        - clerkSession: []
+        - adminSession: []
       requestBody:
         required: true
         content:
@@ -103,13 +103,57 @@ paths:
           description: Invalid station settings
         "401":
           description: Authentication required
+  /admin/session:
+    get:
+      operationId: getAdminSession
+      tags: [admin]
+      summary: Check whether the private station session is active
+      responses:
+        "200":
+          description: Private session status
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AdminSession"
+  /admin/login:
+    post:
+      operationId: adminLogin
+      tags: [admin]
+      summary: Log in with the private station access key
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AdminLoginInput"
+      responses:
+        "200":
+          description: Private session created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AdminSession"
+        "401":
+          description: Invalid access key
+  /admin/logout:
+    post:
+      operationId: adminLogout
+      tags: [admin]
+      summary: End the private station session
+      responses:
+        "200":
+          description: Private session ended
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AdminSession"
   /admin/stream/test:
     post:
       operationId: testAdminStream
       tags: [admin]
       summary: Test a configured upstream stream source
       security:
-        - clerkSession: []
+        - adminSession: []
       requestBody:
         required: true
         content:
@@ -265,9 +309,24 @@ components:
         - reachable
         - contentType
         - message
+    AdminSession:
+      type: object
+      properties:
+        authenticated:
+          type: boolean
+      required:
+        - authenticated
+    AdminLoginInput:
+      type: object
+      properties:
+        accessKey:
+          type: string
+          minLength: 1
+      required:
+        - accessKey
   securitySchemes:
-    clerkSession:
+    adminSession:
       type: apiKey
       in: cookie
-      name: __session
+      name: usalb_admin_session
 
