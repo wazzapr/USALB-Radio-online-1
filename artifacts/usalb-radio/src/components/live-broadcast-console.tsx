@@ -201,7 +201,7 @@ export function LiveBroadcastConsole({ stationName, showName }: LiveBroadcastCon
                       )}
                     </div>
                     <p className="mt-1 max-w-xl text-[11px] leading-5 text-muted-foreground">
-                      The browser dialog controls whether you share a tab, window, or entire screen. Enable audio there if the relay should hear the share.
+                      The browser dialog controls whether you share a tab, window, or entire screen. Enable audio there if the relay should hear the share. The video preview stays in this control room; listeners receive audio only.
                     </p>
                   </div>
                   <button
@@ -237,8 +237,8 @@ export function LiveBroadcastConsole({ stationName, showName }: LiveBroadcastCon
                     </div>
                     <p className={cn("leading-5", broadcast.displayStream && !broadcast.displayHasAudio ? "text-destructive" : "text-muted-foreground")}>
                       {broadcast.displayStream && !broadcast.displayHasAudio
-                        ? "Audio is off. Replace this share and enable the audio checkbox in the browser dialog."
-                        : "A live preview confirms the browser capture is still active."}
+                         ? "Audio is off. Replace this share and enable the audio checkbox in the browser dialog."
+                         : "A live preview confirms the browser capture is still active. Only its audio is sent to listeners."}
                     </p>
                   </div>
                 </div>
@@ -282,7 +282,7 @@ export function LiveBroadcastConsole({ stationName, showName }: LiveBroadcastCon
         <aside className="space-y-6 p-5 sm:p-7">
           <div>
             <div className="mb-3 flex items-center justify-between">
-              <div><p className="eyebrow text-muted-foreground">Instant playback</p><p className="mt-1 text-sm font-bold">Sound-effect pads</p></div>
+               <div><p className="eyebrow text-muted-foreground">Instant playback</p><p className="mt-1 text-sm font-bold">Sound-effect pads</p></div>
               <Sparkles className="h-5 w-5 text-accent" />
             </div>
             <p className="mb-4 text-xs leading-5 text-muted-foreground">Load short station elements, then trigger them over the live mix.</p>
@@ -302,7 +302,7 @@ export function LiveBroadcastConsole({ stationName, showName }: LiveBroadcastCon
           <div className="rounded-xl border border-border bg-background/45 p-4">
                <div className="flex items-start gap-3">
               <Headphones className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
-               <div><p className="text-xs font-bold">Broadcast checklist</p><p className="mt-1 text-[11px] leading-5 text-muted-foreground">Allow microphone access, then preview a tab, window, or entire screen before going live. The browser dialog controls the share and its audio checkbox.</p></div>
+               <div><p className="text-xs font-bold">Broadcast checklist</p><p className="mt-1 text-[11px] leading-5 text-muted-foreground">Listeners receive audio only; no screen video is broadcast. Allow microphone access, then preview a tab, window, or entire screen before going live. Enable the browser audio checkbox when the shared source should be heard.</p></div>
             </div>
             <div className="mt-4 flex flex-wrap gap-2 text-[10px] font-bold uppercase tracking-widest text-muted-foreground">
               <span className="flex items-center gap-1.5 rounded-full border border-border px-2.5 py-1"><Check className="h-3 w-3 text-accent" /> Web audio</span>

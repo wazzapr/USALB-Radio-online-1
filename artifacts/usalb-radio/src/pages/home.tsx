@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "wouter";
 import { useGetRadioConfig, useGetRadioStatus } from "@workspace/api-client-react";
-import { Activity, ArrowUpRight, Copy, ExternalLink, Globe2, Headphones, Info, Link2, LoaderCircle, MessageCircle, MoreHorizontal, Pause, Play, Send, Share2, Volume2, VolumeX, Wifi, WifiOff } from "lucide-react";
+import { Activity, ArrowUpRight, Copy, ExternalLink, Globe2, Headphones, Info, Link2, LoaderCircle, MessageCircle, MoreHorizontal, Pause, Play, Share2, Volume2, VolumeX, Wifi, WifiOff } from "lucide-react";
 import logoSrc from "@assets/usalbradio_1775675611808.jpg";
 import { cn } from "@/lib/utils";
 
@@ -295,7 +295,6 @@ export default function Home() {
   const shareText = `${config.stationName || "USALB RADIO"} — ${config.tagline || "Listen live"}`;
   const shareTargets = [
     { label: "WhatsApp", icon: <MessageCircle className="h-4 w-4" />, url: `https://wa.me/?text=${encodeURIComponent(`${shareText} ${window.location.href}`)}` },
-    { label: "Telegram", icon: <Send className="h-4 w-4" />, url: `https://t.me/share/url?url=${encodeURIComponent(window.location.href)}&text=${encodeURIComponent(shareText)}` },
     { label: "Facebook", icon: <Globe2 className="h-4 w-4" />, url: `https://www.facebook.com/sharer/sharer.php?u=${encodeURIComponent(window.location.href)}` },
     { label: "X / Twitter", icon: <ExternalLink className="h-4 w-4" />, url: `https://twitter.com/intent/tweet?text=${encodeURIComponent(shareText)}&url=${encodeURIComponent(window.location.href)}` },
   ];
@@ -308,6 +307,17 @@ export default function Home() {
     await navigator.clipboard?.writeText(window.location.href);
     setCopied(true);
     window.setTimeout(() => setCopied(false), 1600);
+    setShareOpen(false);
+  };
+  const shareMessenger = () => {
+    const messengerUrl = `fb-messenger://share/?link=${encodeURIComponent(window.location.href)}`;
+    window.location.href = messengerUrl;
+    window.setTimeout(() => {
+      if (document.visibilityState === "visible") {
+        if (hasNativeShare) void shareNative();
+        else void copyShareLink();
+      }
+    }, 800);
     setShareOpen(false);
   };
 
@@ -353,6 +363,10 @@ export default function Home() {
                       {target.label}
                     </a>
                   ))}
+                  <button onClick={shareMessenger} className="flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left text-sm font-semibold text-foreground transition hover:bg-muted" role="menuitem">
+                    <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-primary/10 text-primary"><MessageCircle className="h-4 w-4" /></span>
+                    Messenger
+                  </button>
                   <button onClick={copyShareLink} className="flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left text-sm font-semibold text-foreground transition hover:bg-muted" role="menuitem">
                     <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-primary/10 text-primary">{copied ? <Link2 className="h-4 w-4" /> : <Copy className="h-4 w-4" />}</span>
                     {copied ? "Link copied" : "Copy link"}
