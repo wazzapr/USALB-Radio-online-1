@@ -7,7 +7,18 @@ let broadcaster: WebSocket | null = null;
 let live = false;
 let mimeType: string | null = null;
 let initialChunk: Buffer | null = null;
-const listeners = new Set<WebSocket>();
+let pcmSampleRate: number | null = null;
+let pcmChannels: number | null = null;
+let initialPcmChunk: Buffer | null = null;
+const pcmMagic = Buffer.from([0x50, 0x43, 0x4d, 0x31]);
+
+type ListenerFormat = "webm" | "pcm";
+type Listener = {
+  socket: WebSocket;
+  format: ListenerFormat;
+};
+
+const listeners = new Set<Listener>();
 
 function sendJson(socket: WebSocket, payload: Record<string, unknown>): void {
   if (socket.readyState === WebSocket.OPEN) {
@@ -17,7 +28,14 @@ function sendJson(socket: WebSocket, payload: Record<string, unknown>): void {
 
 function announceStatus(): void {
   for (const listener of listeners) {
-    sendJson(listener, { type: "status", live, mimeType });
+    sendJson(listener.socket, {
+      type: "status",
+      live,
+      audioMode: listener.format,
+      mimeType: listener.format === "webm" ? mimeType : null,
+      sampleRate: listener.format === "pcm" ? pcmSampleRate : null,
+      channels: listener.format === "pcm" ? pcmChannels : null,
+    });
   }
 }
 
@@ -28,6 +46,9 @@ function stopBroadcast(socket?: WebSocket): void {
   live = false;
   mimeType = null;
   initialChunk = null;
+  pcmSampleRate = null;
+  pcmChannels = null;
+  initialPcmChunk = null;
   announceStatus();
 }
 
@@ -47,15 +68,25 @@ function attachBroadcaster(socket: WebSocket): void {
   live = false;
   mimeType = null;
   initialChunk = null;
+  pcmSampleRate = null;
+  pcmChannels = null;
+  initialPcmChunk = null;
   announceStatus();
 
   socket.on("message", (data, isBinary) => {
     if (isBinary) {
       const chunk = rawDataToBuffer(data);
-      if (!initialChunk) initialChunk = Buffer.from(chunk);
+      const isPcm = chunk.subarray(0, pcmMagic.length).equals(pcmMagic);
+      if (isPcm) {
+        if (!initialPcmChunk) initialPcmChunk = Buffer.from(chunk);
+      } else if (!initialChunk) {
+        initialChunk = Buffer.from(chunk);
+      }
 
       for (const listener of listeners) {
-        if (listener.readyState === WebSocket.OPEN) listener.send(chunk);
+        if (listener.socket.readyState !== WebSocket.OPEN) continue;
+        if ((listener.format === "pcm") !== isPcm) continue;
+        listener.socket.send(chunk);
       }
       return;
     }
@@ -64,10 +95,14 @@ function attachBroadcaster(socket: WebSocket): void {
       const message = JSON.parse(data.toString()) as {
         type?: string;
         mimeType?: string;
+        pcmSampleRate?: number;
+        pcmChannels?: number;
       };
       if (message.type === "start") {
         live = true;
         mimeType = message.mimeType || null;
+        pcmSampleRate = Number.isFinite(message.pcmSampleRate) ? message.pcmSampleRate ?? null : null;
+        pcmChannels = Number.isFinite(message.pcmChannels) ? message.pcmChannels ?? null : null;
         announceStatus();
       } else if (message.type === "stop") {
         stopBroadcast(socket);
@@ -81,25 +116,34 @@ function attachBroadcaster(socket: WebSocket): void {
   socket.once("error", () => stopBroadcast(socket));
 }
 
-function attachListener(socket: WebSocket): void {
-  listeners.add(socket);
-  sendJson(socket, { type: "status", live, mimeType });
-  if (live && initialChunk && socket.readyState === WebSocket.OPEN) {
-    socket.send(initialChunk);
+function attachListener(socket: WebSocket, format: ListenerFormat): void {
+  const listener = { socket, format };
+  listeners.add(listener);
+  sendJson(socket, {
+    type: "status",
+    live,
+    audioMode: format,
+    mimeType: format === "webm" ? mimeType : null,
+    sampleRate: format === "pcm" ? pcmSampleRate : null,
+    channels: format === "pcm" ? pcmChannels : null,
+  });
+  const initialChunkForFormat = format === "pcm" ? initialPcmChunk : initialChunk;
+  if (live && initialChunkForFormat && socket.readyState === WebSocket.OPEN) {
+    socket.send(initialChunkForFormat);
   }
 
-  socket.once("close", () => listeners.delete(socket));
-  socket.once("error", () => listeners.delete(socket));
+  socket.once("close", () => listeners.delete(listener));
+  socket.once("error", () => listeners.delete(listener));
 }
 
-function handleConnection(socket: WebSocket, role: string | null): void {
+function handleConnection(socket: WebSocket, role: string | null, formatParam: string | null): void {
   if (role === "broadcaster") {
     attachBroadcaster(socket);
     return;
   }
 
   if (role === "listener") {
-    attachListener(socket);
+    attachListener(socket, formatParam === "pcm" ? "pcm" : "webm");
     return;
   }
 
@@ -129,7 +173,7 @@ export function attachLiveRelay(server: Server): void {
     }
 
     socketServer.handleUpgrade(request, socket, head, (client) => {
-      handleConnection(client, url.searchParams.get("role"));
+      handleConnection(client, url.searchParams.get("role"), url.searchParams.get("format"));
     });
   });
 }

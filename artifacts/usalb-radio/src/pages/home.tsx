@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "wouter";
 import { useGetRadioConfig, useGetRadioStatus } from "@workspace/api-client-react";
-import { Activity, ArrowUpRight, Headphones, Info, LoaderCircle, Pause, Play, Radio, Share2, Volume2, VolumeX, Wifi, WifiOff } from "lucide-react";
+import { Activity, ArrowUpRight, Headphones, Info, LoaderCircle, Pause, Play, Share2, Volume2, VolumeX, Wifi, WifiOff } from "lucide-react";
 import logoSrc from "@assets/usalbradio_1775675611808.jpg";
 import { cn } from "@/lib/utils";
 
@@ -11,11 +11,23 @@ type LiveStatusMessage = {
   type: "status";
   live: boolean;
   mimeType?: string | null;
+  audioMode?: "webm" | "pcm";
+  sampleRate?: number | null;
+  channels?: number | null;
 };
 
-function listenerSocketUrl(): string {
+type ListenerFormat = "webm" | "pcm";
+
+const pcmMagic = [0x50, 0x43, 0x4d, 0x31];
+
+function listenerSocketUrl(format: ListenerFormat): string {
   const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
-  return `${protocol}//${window.location.host}/api/live/ws?role=listener`;
+  return `${protocol}//${window.location.host}/api/live/ws?role=listener&format=${format}`;
+}
+
+function canPlayWebmStream(): boolean {
+  if (!("MediaSource" in window)) return false;
+  return ["audio/webm;codecs=opus", "audio/webm"].some((mimeType) => MediaSource.isTypeSupported(mimeType));
 }
 
 function SignalBars({ active }: { active: boolean }) {
@@ -41,8 +53,16 @@ export default function Home() {
   const queuedChunksRef = useRef<ArrayBuffer[]>([]);
   const objectUrlRef = useRef<string | null>(null);
   const mimeTypeRef = useRef("audio/webm;codecs=opus");
+  const audioContextRef = useRef<AudioContext | null>(null);
+  const pcmGainRef = useRef<GainNode | null>(null);
+  const pcmSourcesRef = useRef<Set<AudioBufferSourceNode>>(new Set());
+  const pcmNextTimeRef = useRef(0);
+  const pcmConfigRef = useRef({ sampleRate: 48000, channels: 2 });
 
-  useEffect(() => { if (audioRef.current) audioRef.current.volume = volume; }, [volume]);
+  useEffect(() => {
+    if (audioRef.current) audioRef.current.volume = muted ? 0 : volume;
+    if (pcmGainRef.current) pcmGainRef.current.gain.value = muted ? 0 : volume;
+  }, [muted, volume]);
   const lastUpdated = useMemo(() => updated ? new Date(updated).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : "—", [updated]);
 
   const cleanupListener = () => {
@@ -51,6 +71,19 @@ export default function Home() {
     sourceBufferRef.current = null;
     mediaSourceRef.current = null;
     queuedChunksRef.current = [];
+    pcmSourcesRef.current.forEach((source) => {
+      try {
+        source.stop();
+      } catch {
+        // The source may already have ended.
+      }
+    });
+    pcmSourcesRef.current.clear();
+    if (audioContextRef.current) {
+      void audioContextRef.current.close();
+      audioContextRef.current = null;
+    }
+    pcmGainRef.current = null;
     if (objectUrlRef.current) URL.revokeObjectURL(objectUrlRef.current);
     objectUrlRef.current = null;
   };
@@ -89,43 +122,74 @@ export default function Home() {
     appendQueuedChunks();
   };
 
-  const toggle = async () => {
+  const enqueuePcmChunk = (chunk: ArrayBuffer) => {
+    const context = audioContextRef.current;
+    if (!context || chunk.byteLength <= pcmMagic.length) return;
+    const bytes = new Uint8Array(chunk, 0, pcmMagic.length);
+    if (!pcmMagic.every((value, index) => bytes[index] === value)) return;
+
+    const { sampleRate, channels } = pcmConfigRef.current;
+    const frameBytes = channels * 2;
+    const frameCount = Math.floor((chunk.byteLength - pcmMagic.length) / frameBytes);
+    if (!frameCount) return;
+
+    const audioBuffer = context.createBuffer(channels, frameCount, sampleRate);
+    const view = new DataView(chunk, pcmMagic.length);
+    for (let frame = 0; frame < frameCount; frame += 1) {
+      for (let channel = 0; channel < channels; channel += 1) {
+        const offset = (frame * channels + channel) * 2;
+        audioBuffer.getChannelData(channel)[frame] = view.getInt16(offset, true) / 32768;
+      }
+    }
+
+    const source = context.createBufferSource();
+    source.buffer = audioBuffer;
+    source.connect(pcmGainRef.current ?? context.destination);
+    const now = context.currentTime;
+    const startAt = Math.max(pcmNextTimeRef.current, now + 0.04);
+    source.start(startAt);
+    pcmNextTimeRef.current = startAt + audioBuffer.duration;
+    pcmSourcesRef.current.add(source);
+    source.addEventListener("ended", () => pcmSourcesRef.current.delete(source), { once: true });
+  };
+
+  const connectListener = (format: ListenerFormat) => {
     const audio = audioRef.current;
-    if (!audio) return;
-    if (playing) {
-      audio.pause();
-      cleanupListener();
-      setPlaying(false);
-      return;
-    }
-
-    if (!("MediaSource" in window)) {
-      setError("Live listening requires a modern Chrome, Edge, or Firefox browser.");
-      return;
-    }
-
-    setLoading(true);
-    setError("");
-    setBroadcastLive(null);
-    cleanupListener();
-
-    const mediaSource = new MediaSource();
-    mediaSourceRef.current = mediaSource;
-    objectUrlRef.current = URL.createObjectURL(mediaSource);
-    audio.src = objectUrlRef.current;
-    mediaSource.addEventListener("sourceopen", setupSourceBuffer);
-
-    const socket = new WebSocket(listenerSocketUrl());
+    const socket = new WebSocket(listenerSocketUrl(format));
     socket.binaryType = "arraybuffer";
     socketRef.current = socket;
 
+    if (format === "webm" && audio) {
+      const mediaSource = new MediaSource();
+      mediaSourceRef.current = mediaSource;
+      objectUrlRef.current = URL.createObjectURL(mediaSource);
+      audio.src = objectUrlRef.current;
+      mediaSource.addEventListener("sourceopen", setupSourceBuffer);
+    }
+
     socket.onopen = async () => {
-      setLoading(false);
       try {
-        await audio.play();
+        if (format === "pcm") {
+          const AudioContextConstructor = window.AudioContext
+            ?? (window as Window & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+          if (!AudioContextConstructor) throw new Error("Audio playback is not supported in this browser.");
+          const context = new AudioContextConstructor();
+          await context.resume();
+          audioContextRef.current = context;
+          const gain = context.createGain();
+          gain.gain.value = muted ? 0 : volume;
+          gain.connect(context.destination);
+          pcmGainRef.current = gain;
+          pcmNextTimeRef.current = context.currentTime + 0.08;
+        } else if (audio) {
+          await audio.play();
+        }
+        setLoading(false);
         setPlaying(true);
       } catch {
-        setError("Tap play again to connect to the live source.");
+        setLoading(false);
+        setPlaying(false);
+        setError("Tap the play button again to connect to the live source.");
       }
     };
 
@@ -135,7 +199,17 @@ export default function Home() {
           const message = JSON.parse(event.data) as LiveStatusMessage;
           if (message.type === "status") {
             setBroadcastLive(message.live);
-            if (message.mimeType) {
+            if (format === "pcm" && message.sampleRate && message.channels) {
+              pcmConfigRef.current = { sampleRate: message.sampleRate, channels: message.channels };
+            }
+            if (format === "webm" && message.mimeType) {
+              if (!MediaSource.isTypeSupported(message.mimeType)) {
+                if (socketRef.current !== socket) return;
+                cleanupListener();
+                setLoading(true);
+                connectListener("pcm");
+                return;
+              }
               mimeTypeRef.current = message.mimeType;
               setupSourceBuffer();
             }
@@ -149,22 +223,44 @@ export default function Home() {
 
       const chunk = event.data instanceof ArrayBuffer ? event.data : null;
       if (!chunk) return;
+      if (format === "pcm") {
+        enqueuePcmChunk(chunk);
+        return;
+      }
       queuedChunksRef.current.push(chunk);
       setupSourceBuffer();
       appendQueuedChunks();
     };
 
     socket.onerror = () => {
+      if (socketRef.current !== socket) return;
       setLoading(false);
       setPlaying(false);
       setError("The live studio connection is unavailable.");
     };
 
     socket.onclose = () => {
+      if (socketRef.current !== socket) return;
       setLoading(false);
       setPlaying(false);
       if (broadcastLive) setError("The live broadcast connection ended.");
     };
+  };
+
+  const toggle = async () => {
+    const audio = audioRef.current;
+    if (playing) {
+      audio?.pause();
+      cleanupListener();
+      setPlaying(false);
+      return;
+    }
+
+    setLoading(true);
+    setError("");
+    setBroadcastLive(null);
+    cleanupListener();
+    connectListener(canPlayWebmStream() ? "webm" : "pcm");
   };
 
   const share = async () => {
@@ -214,9 +310,18 @@ export default function Home() {
             </div>
             <div className="relative mt-12 flex items-center justify-center">
               <div className={cn("absolute h-56 w-56 rounded-full border border-primary/20", playing && "animate-[ping_3s_ease-out_infinite]")} />
-              <div className="flex h-48 w-48 items-center justify-center rounded-full border border-primary/30 bg-background shadow-[inset_0_0_45px_rgba(224,89,71,.12)]">
-                <div className="flex h-36 w-36 items-center justify-center rounded-full border border-accent/20 bg-card"><Radio className="h-12 w-12 text-primary" /></div>
-              </div>
+              <button
+                type="button"
+                onClick={toggle}
+                disabled={loading}
+                className="group flex h-48 w-48 items-center justify-center rounded-full border border-primary/30 bg-background shadow-[inset_0_0_45px_rgba(224,89,71,.12)] transition hover:scale-[1.02] hover:border-primary/60 disabled:cursor-wait disabled:opacity-75"
+                aria-label={playing ? "Pause live broadcast" : "Play live broadcast"}
+                data-testid="button-center-player"
+              >
+                <span className="flex h-36 w-36 items-center justify-center rounded-full border border-accent/20 bg-card text-primary transition group-hover:bg-primary/10">
+                  {loading ? <LoaderCircle className="h-10 w-10 animate-spin" /> : playing ? <Pause className="h-12 w-12 fill-current" /> : <Play className="ml-1 h-12 w-12 fill-current" />}
+                </span>
+              </button>
             </div>
             <div className="relative mt-12 text-center">
               <div className="flex justify-center"><SignalBars active={playing} /></div>

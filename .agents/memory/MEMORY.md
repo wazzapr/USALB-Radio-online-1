@@ -1,0 +1,1 @@
+- [Mobile live audio compatibility](mobile-live-audio.md) — iOS Safari and in-app phone browsers need a PCM listener path instead of WebM/Opus MediaSource playback.

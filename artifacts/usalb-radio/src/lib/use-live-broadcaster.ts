@@ -14,10 +14,13 @@ export type EffectPad = {
 type AudioGraph = {
   context: AudioContext;
   destination: MediaStreamAudioDestinationNode;
+  mixBus: GainNode;
   musicGain: GainNode;
   voiceGain: GainNode;
   musicAnalyser: AnalyserNode;
   voiceAnalyser: AnalyserNode;
+  pcmProcessor: ScriptProcessorNode | null;
+  pcmSilence: GainNode | null;
   musicElement: HTMLAudioElement | null;
   displayStream: MediaStream | null;
   displaySource: MediaStreamAudioSourceNode | null;
@@ -32,6 +35,7 @@ const defaultPads: EffectPad[] = [
   { id: "pad-5", label: "Bed", file: null, duration: null },
   { id: "pad-6", label: "Tag", file: null, duration: null },
 ];
+const pcmMagic = new Uint8Array([0x50, 0x43, 0x4d, 0x31]);
 
 function chooseMimeType() {
   const candidates = ["audio/webm;codecs=opus", "audio/webm", "audio/ogg;codecs=opus"];
@@ -137,6 +141,10 @@ export function useLiveBroadcaster() {
       displayStreamRef.current = null;
       updateDisplayDetails(null);
     }
+    if (graph.pcmProcessor) graph.pcmProcessor.onaudioprocess = null;
+    graph.pcmProcessor?.disconnect();
+    graph.pcmSilence?.disconnect();
+    graph.mixBus.disconnect();
     graph.displaySource?.disconnect();
     graph.displayStream?.getTracks().forEach((track) => track.stop());
     graph.microphoneStream?.getTracks().forEach((track) => track.stop());
@@ -322,22 +330,76 @@ export function useLiveBroadcaster() {
       const context = new AudioContext();
       await context.resume();
       const destination = context.createMediaStreamDestination();
+      const mixBus = context.createGain();
       const musicGain = context.createGain();
       const voiceGain = context.createGain();
       const musicAnalyser = context.createAnalyser();
       const voiceAnalyser = context.createAnalyser();
+      const pcmProcessor = typeof context.createScriptProcessor === "function"
+        ? context.createScriptProcessor(4096, 2, 2)
+        : null;
+      const pcmSilence = pcmProcessor ? context.createGain() : null;
       musicAnalyser.fftSize = 256;
       voiceAnalyser.fftSize = 256;
       musicGain.gain.value = musicVolumeRef.current;
       voiceGain.gain.value = microphoneEnabledRef.current ? voiceVolumeRef.current : 0;
       musicGain.connect(musicAnalyser);
-      musicAnalyser.connect(destination);
       voiceGain.connect(voiceAnalyser);
-      voiceAnalyser.connect(destination);
+      musicAnalyser.connect(mixBus);
+      voiceAnalyser.connect(mixBus);
+      mixBus.connect(destination);
+      if (pcmProcessor && pcmSilence) {
+        mixBus.connect(pcmProcessor);
+        pcmProcessor.connect(pcmSilence);
+        pcmSilence.gain.value = 0;
+        pcmSilence.connect(context.destination);
+        pcmProcessor.onaudioprocess = (event) => {
+          const socket = socketRef.current;
+          if (!socket || socket.readyState !== WebSocket.OPEN) return;
+          const input = event.inputBuffer;
+          const channels = 2;
+          const packet = new ArrayBuffer(pcmMagic.length + input.length * channels * 2);
+          const bytes = new Uint8Array(packet);
+          bytes.set(pcmMagic);
+          const view = new DataView(packet);
+          for (let frame = 0; frame < input.length; frame += 1) {
+            for (let channel = 0; channel < channels; channel += 1) {
+              const sourceChannel = Math.min(channel, Math.max(0, input.numberOfChannels - 1));
+              const sample = Math.max(-1, Math.min(1, input.getChannelData(sourceChannel)[frame]));
+              view.setInt16(pcmMagic.length + (frame * channels + channel) * 2, sample * 32767, true);
+            }
+          }
+          socket.send(packet);
+        };
+      }
 
-      const graph: AudioGraph = { context, destination, musicGain, voiceGain, musicAnalyser, voiceAnalyser, musicElement: null, displayStream: null, displaySource: null, microphoneStream: null };
+      let displayStream = sourceRef.current === "pc" ? displayStreamRef.current : null;
+      if (sourceRef.current === "pc" && !displayStream) {
+        const nextStream = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: true });
+        const previousStream = displayStreamRef.current;
+        displayStreamRef.current = nextStream;
+        updateDisplayDetails(nextStream);
+        registerDisplayEnded(nextStream);
+        if (previousStream && previousStream !== nextStream) previousStream.getTracks().forEach((track) => track.stop());
+        displayStream = nextStream;
+      }
+
+      const graph: AudioGraph = {
+        context,
+        destination,
+        mixBus,
+        musicGain,
+        voiceGain,
+        musicAnalyser,
+        voiceAnalyser,
+        pcmProcessor,
+        pcmSilence,
+        musicElement: null,
+        displayStream: null,
+        displaySource: null,
+        microphoneStream: null,
+      };
       graphRef.current = graph;
-      const displayStream = sourceRef.current === "pc" ? displayStreamRef.current : null;
       if (sourceRef.current === "pc" && !displayStream) {
         throw new Error("Choose a tab, window, or screen preview before going live.");
       }
@@ -396,7 +458,12 @@ export function useLiveBroadcaster() {
       });
       const mimeType = chooseMimeType();
       if (!mimeType) throw new Error("This browser cannot encode a compatible live audio stream.");
-      socket.send(JSON.stringify({ type: "start", mimeType }));
+      socket.send(JSON.stringify({
+        type: "start",
+        mimeType,
+        pcmSampleRate: context.sampleRate,
+        pcmChannels: 2,
+      }));
       const recorder = new MediaRecorder(destination.stream, { mimeType });
       recorderRef.current = recorder;
       recorder.ondataavailable = (event) => {
@@ -418,7 +485,7 @@ export function useLiveBroadcaster() {
       const message = cause instanceof Error ? cause.message : "The broadcast could not be started.";
       await fail(message);
     }
-  }, [cleanupGraph, fail, runMeter, state]);
+  }, [cleanupGraph, fail, registerDisplayEnded, runMeter, state, updateDisplayDetails]);
 
   const stop = useCallback(() => {
     if (state !== "live" && state !== "connecting" && state !== "preparing") return;

@@ -101,6 +101,7 @@ export function LiveBroadcastConsole({ stationName, showName }: LiveBroadcastCon
   const broadcast = useLiveBroadcaster();
   const isBusy = broadcast.state === "preparing" || broadcast.state === "connecting" || broadcast.state === "stopping";
   const isLive = broadcast.state === "live";
+  const cannotStart = broadcast.source === "music" && !broadcast.musicFile;
   useEffect(() => {
     const preview = displayPreviewRef.current;
     if (!preview) return;
@@ -144,7 +145,7 @@ export function LiveBroadcastConsole({ stationName, showName }: LiveBroadcastCon
             <button
               type="button"
               onClick={isLive ? broadcast.stop : broadcast.start}
-              disabled={isBusy || (broadcast.source === "music" && !broadcast.musicFile) || (broadcast.source === "pc" && (!broadcast.displayStream || !broadcast.displayHasAudio))}
+              disabled={isBusy || (!isLive && cannotStart)}
               className={cn("flex min-w-[132px] items-center justify-center gap-2 rounded-xl px-4 py-3 text-xs font-extrabold uppercase tracking-[.13em] transition disabled:cursor-not-allowed disabled:opacity-45", isLive ? "border border-primary/50 bg-primary/10 text-primary hover:bg-primary/20" : "bg-primary text-primary-foreground hover:bg-primary/90")}
               data-testid={isLive ? "button-stop-broadcast" : "button-start-broadcast"}
             >
