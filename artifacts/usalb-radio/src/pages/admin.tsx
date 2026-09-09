@@ -288,7 +288,7 @@ export default function Admin() {
           </div>
           <div className="flex items-center gap-3">
             <div className="flex items-center gap-2 rounded-full border border-accent/20 bg-accent/10 px-3 py-2 text-xs text-accent">
-              <ShieldCheck className="h-4 w-4" /> Key verified
+              <ShieldCheck className="h-4 w-4" /> Control room unlocked
             </div>
             <button
               onClick={signOut}

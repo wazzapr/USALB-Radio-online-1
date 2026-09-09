@@ -16,6 +16,7 @@ import {
   accessKeyMatches,
   clearAdminSession,
   hasAdminSession,
+  isAdminAuthRequired,
   requireAdminSession,
   setAdminSession,
 } from "../middlewares/adminAuth";
@@ -110,6 +111,11 @@ router.get("/admin/session", (req, res): void => {
 });
 
 router.post("/admin/login", (req, res): void => {
+  if (!isAdminAuthRequired()) {
+    res.json({ authenticated: true });
+    return;
+  }
+
   const accessKey =
     typeof req.body?.accessKey === "string" ? req.body.accessKey : "";
 

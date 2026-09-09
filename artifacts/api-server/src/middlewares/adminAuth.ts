@@ -7,6 +7,10 @@ import type { RequestHandler } from "express";
 export const ADMIN_SESSION_COOKIE = "usalb_admin_session";
 const SESSION_TTL_MS = 12 * 60 * 60 * 1000;
 
+export function isAdminAuthRequired(): boolean {
+  return process.env.ADMIN_AUTH_REQUIRED === "true";
+}
+
 function sessionSecret(): string {
   const secret = process.env.SESSION_SECRET;
   if (!secret) {
@@ -41,6 +45,8 @@ function cookieValue(req: Parameters<RequestHandler>[0]): string | undefined {
 }
 
 export function hasAdminSession(req: Parameters<RequestHandler>[0]): boolean {
+  if (!isAdminAuthRequired()) return true;
+
   const value = cookieValue(req);
   if (!value) return false;
 
@@ -67,6 +73,8 @@ export const requireAdminSession: RequestHandler = (req, res, next) => {
 };
 
 export function accessKeyMatches(accessKey: string): boolean {
+  if (!isAdminAuthRequired()) return true;
+
   const expected = process.env.ADMIN_ACCESS_KEY;
   if (!expected) {
     throw new Error("ADMIN_ACCESS_KEY is required for admin login");
