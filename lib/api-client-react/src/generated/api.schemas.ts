@@ -8,3 +8,91 @@
 export interface HealthStatus {
   status: string;
 }
+
+export type RadioConfigSourceType =
+  (typeof RadioConfigSourceType)[keyof typeof RadioConfigSourceType];
+
+export const RadioConfigSourceType = {
+  icecast: "icecast",
+  mp3: "mp3",
+  encoder: "encoder",
+} as const;
+
+export interface RadioConfig {
+  stationName: string;
+  tagline: string;
+  genre: string;
+  hostName: string;
+  showName: string;
+  sourceType: RadioConfigSourceType;
+  streamUrl: string;
+  listenerUrl: string;
+  isLive: boolean;
+  updatedAt: string;
+}
+
+export type RadioStatusSourceType =
+  (typeof RadioStatusSourceType)[keyof typeof RadioStatusSourceType];
+
+export const RadioStatusSourceType = {
+  icecast: "icecast",
+  mp3: "mp3",
+  encoder: "encoder",
+} as const;
+
+export interface RadioStatus {
+  isLive: boolean;
+  sourceType: RadioStatusSourceType;
+  message: string;
+  updatedAt: string;
+}
+
+export type StreamUrlSource =
+  (typeof StreamUrlSource)[keyof typeof StreamUrlSource];
+
+export const StreamUrlSource = {
+  stable: "stable",
+  fallback: "fallback",
+} as const;
+
+export interface StreamUrl {
+  url: string;
+  source: StreamUrlSource;
+}
+
+export type AdminStation = RadioConfig & {
+  sourceUrl: string;
+};
+
+export type StationUpdateSourceType =
+  (typeof StationUpdateSourceType)[keyof typeof StationUpdateSourceType];
+
+export const StationUpdateSourceType = {
+  icecast: "icecast",
+  mp3: "mp3",
+  encoder: "encoder",
+} as const;
+
+export interface StationUpdate {
+  /** @minLength 1 */
+  stationName: string;
+  tagline: string;
+  genre: string;
+  hostName: string;
+  showName: string;
+  sourceType: StationUpdateSourceType;
+  sourceUrl: string;
+  isLive: boolean;
+}
+
+export interface StreamTestInput {
+  sourceUrl: string;
+}
+
+export interface StreamTestResult {
+  ok: boolean;
+  reachable: boolean;
+  /** @nullable */
+  contentType: string | null;
+  message: string;
+}

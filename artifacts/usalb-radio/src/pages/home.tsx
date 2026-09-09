@@ -1,547 +1,118 @@
-import React, { useState, useRef, useEffect, useCallback } from "react";
-import { Play, Pause, Volume2, VolumeX, Radio, Copy, Check, Share2, RefreshCw, WifiOff } from "lucide-react";
-import { Slider } from "@/components/ui/slider";
-import { cn } from "@/lib/utils";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { Link } from "wouter";
+import { useGetRadioConfig, useGetRadioStatus, useGetStreamUrl } from "@workspace/api-client-react";
+import { Activity, ArrowUpRight, Headphones, Info, LoaderCircle, Pause, Play, Radio, Share2, Volume2, VolumeX, Wifi, WifiOff } from "lucide-react";
 import logoSrc from "@assets/usalbradio_1775675611808.jpg";
-import { SiFacebook, SiWhatsapp, SiX, SiMessenger } from "react-icons/si";
+import { cn } from "@/lib/utils";
 
-const FALLBACK_STREAM_URL = "https://uk4freenew.listen2myradio.com/live.mp3?typeportmount=s1_9311_stream_687568716";
-const APP_URL = "https://usalb-radio--usalbtv.replit.app/";
+const fallback = { stationName: "USALB RADIO", tagline: "Zëri që të mban afër.", genre: "Albanian hits · Talk · Culture", hostName: "USALB Studio", showName: "Live from the studio", sourceType: "icecast", isLive: false };
 
-const ua = navigator.userAgent;
-const isIOS = /iP(hone|ad|od)/.test(ua);
-const isAndroid = /Android/.test(ua);
-const isInFBBrowser = /FBAN|FBAV|FBIOS|FB_IAB|Instagram|Messenger/.test(ua);
-
-function openInSystemBrowser(setShowIOSHelp: (v: boolean) => void) {
-  if (isAndroid) {
-    // Android: intent URL opens in the default browser
-    window.location.href = `intent://${APP_URL.replace(/^https?:\/\//, "")}#Intent;scheme=https;end`;
-  } else if (isIOS) {
-    // iOS: can't open Safari programmatically — show step-by-step instructions
-    setShowIOSHelp(true);
-  } else {
-    window.open(APP_URL, "_blank");
-  }
+function SignalBars({ active }: { active: boolean }) {
+  return <div className="flex h-6 items-end gap-1" aria-label={active ? "Audio is playing" : "Audio is paused"}>{[35, 58, 82, 48, 70].map((height, i) => <span key={i} className={cn("w-1 rounded-t-sm bg-primary transition-transform", active && "animate-[equalizer_1s_ease-in-out_infinite_alternate]")} style={{ height: `${active ? height : 18}%`, animationDelay: `${i * -120}ms` }} />)}</div>;
 }
 
 export default function Home() {
   const audioRef = useRef<HTMLAudioElement>(null);
-  const [isPlaying, setIsPlaying] = useState(false);
-  const [volume, setVolume] = useState(0.8);
-  const [isMuted, setIsMuted] = useState(false);
-  const [isLoading, setIsLoading] = useState(false);
-  const [streamOffline, setStreamOffline] = useState(false);
-  const [retryCountdown, setRetryCountdown] = useState(0);
-  const [copied, setCopied] = useState(false);
-  const [shareOpen, setShareOpen] = useState(false);
-  const [showIOSHelp, setShowIOSHelp] = useState(false);
-  const shareRef = useRef<HTMLDivElement>(null);
-  const retryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const countdownRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const primerIframeRef = useRef<HTMLIFrameElement | null>(null);
-  const streamOfflineRef = useRef(false);
-  useEffect(() => { streamOfflineRef.current = streamOffline; }, [streamOffline]);
+  const [playing, setPlaying] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [volume, setVolume] = useState(.82);
+  const [muted, setMuted] = useState(false);
+  const [error, setError] = useState("");
+  const configQuery = useGetRadioConfig();
+  const statusQuery = useGetRadioStatus();
+  const streamQuery = useGetStreamUrl();
+  const config = configQuery.data ?? fallback;
+  const isLive = statusQuery.data?.isLive ?? config.isLive;
+  const streamUrl = streamQuery.data?.url || (config as typeof fallback & { listenerUrl?: string }).listenerUrl;
+  const updated = statusQuery.data?.updatedAt || configQuery.data?.updatedAt;
 
-  // Use a ref for the stream URL so updating it NEVER causes a re-render
-  // or audio interruption. The audio element src is set imperatively.
-  const streamUrlRef = useRef(FALLBACK_STREAM_URL);
-  const isPlayingRef = useRef(false);
-  useEffect(() => { isPlayingRef.current = isPlaying; }, [isPlaying]);
+  useEffect(() => { if (audioRef.current) audioRef.current.volume = volume; }, [volume]);
+  const lastUpdated = useMemo(() => updated ? new Date(updated).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : "—", [updated]);
 
-  const shareUrl = window.location.href;
-  const shareText = "Listen to USALB RADIO — live Albanian broadcast!";
-
-  useEffect(() => {
-    const handleClickOutside = (e: MouseEvent) => {
-      if (shareRef.current && !shareRef.current.contains(e.target as Node)) {
-        setShareOpen(false);
-      }
-    };
-    document.addEventListener("mousedown", handleClickOutside);
-    return () => document.removeEventListener("mousedown", handleClickOutside);
-  }, []);
-
-  // Fetch the live stream URL. Store it in a ref only.
-  // If the radio is already playing, leave it completely alone.
-  // If not playing, update the audio src so the next play uses the fresh URL.
-  useEffect(() => {
-    let cancelled = false;
-    const fetchUrl = async () => {
-      try {
-        const res = await fetch("/api/stream-url");
-        if (!res.ok) throw new Error("API error");
-        const data = await res.json();
-        if (cancelled || !data.url) return;
-        streamUrlRef.current = data.url;
-        // Only update the audio element src if the radio is not currently playing
-        if (audioRef.current && !isPlayingRef.current) {
-          audioRef.current.src = data.url;
-        }
-      } catch {
-        // Keep the fallback already set on the audio element
-      }
-    };
-    fetchUrl();
-    const interval = setInterval(fetchUrl, 5 * 60 * 1000);
-    return () => { cancelled = true; clearInterval(interval); };
-  }, []);
-
-  const shareOn = (platform: "facebook" | "messenger" | "whatsapp" | "x") => {
-    const urls = {
-      facebook: `https://www.facebook.com/sharer/sharer.php?u=${encodeURIComponent(shareUrl)}`,
-      messenger: `fb-messenger://share?link=${encodeURIComponent(shareUrl)}`,
-      whatsapp: `https://wa.me/?text=${encodeURIComponent(shareText + " " + shareUrl)}`,
-      x: `https://twitter.com/intent/tweet?text=${encodeURIComponent(shareText)}&url=${encodeURIComponent(shareUrl)}`,
-    };
-    window.open(urls[platform], "_blank", "noopener,noreferrer");
-    setShareOpen(false);
-  };
-
-  const copyLink = () => {
-    navigator.clipboard.writeText(shareUrl).then(() => {
-      setCopied(true);
-      setShareOpen(false);
-      setTimeout(() => setCopied(false), 2000);
-    });
-  };
-  
-  const clearRetryTimers = useCallback(() => {
-    if (retryTimerRef.current) clearTimeout(retryTimerRef.current);
-    if (countdownRef.current) clearInterval(countdownRef.current);
-    setRetryCountdown(0);
-  }, []);
-
-  const startRetryCountdown = useCallback((seconds: number, onRetry: () => void) => {
-    clearRetryTimers();
-    setRetryCountdown(seconds);
-    countdownRef.current = setInterval(() => {
-      setRetryCountdown((n) => {
-        if (n <= 1) {
-          if (countdownRef.current) clearInterval(countdownRef.current);
-          return 0;
-        }
-        return n - 1;
-      });
-    }, 1000);
-    retryTimerRef.current = setTimeout(onRetry, seconds * 1000);
-  }, [clearRetryTimers]);
-
-  const removePrimerIframe = useCallback(() => {
-    if (primerIframeRef.current) {
-      primerIframeRef.current.src = "about:blank";
-      primerIframeRef.current.remove();
-      primerIframeRef.current = null;
-    }
-  }, []);
-
-  const primerAndPlay = useCallback(async (audio: HTMLAudioElement, url: string) => {
-    // Open the official radio page in a hidden iframe to warm up the connection,
-    // then immediately attempt playback
-    removePrimerIframe();
-    const iframe = document.createElement("iframe");
-    iframe.style.cssText = "position:fixed;width:1px;height:1px;border:0;opacity:0;pointer-events:none;left:-9999px;top:-9999px;";
-    iframe.src = "https://usalbradio.radiostream321.com/";
-    document.body.appendChild(iframe);
-    primerIframeRef.current = iframe;
-
-    // Give it 2 seconds to establish the connection, then play
-    await new Promise(r => setTimeout(r, 2000));
-    removePrimerIframe();
-
-    audio.src = url + (url.includes("?") ? "&" : "?") + "_t=" + Date.now();
-    audio.load();
-    await audio.play();
-  }, [removePrimerIframe]);
-
-  const attemptPlay = useCallback(async (isRetry = false) => {
+  const toggle = async () => {
     const audio = audioRef.current;
-    if (!audio) return;
-    // Fetch fresh URL before each play attempt; bust server cache on retries
-    try {
-      const qs = isRetry ? "?fresh=1" : "";
-      const res = await fetch(`/api/stream-url${qs}`);
-      if (res.ok) {
-        const data = await res.json();
-        if (data.url) {
-          streamUrlRef.current = data.url;
-        }
-      }
-    } catch { /* use existing url */ }
-
-    setIsLoading(true);
-    setStreamOffline(false);
-    try {
-      if (isRetry) {
-        await primerAndPlay(audio, streamUrlRef.current);
-      } else {
-        audio.src = streamUrlRef.current;
-        audio.load();
-        await audio.play();
-      }
-      setIsPlaying(true);
-      setIsLoading(false);
-      clearRetryTimers();
-    } catch {
-      removePrimerIframe();
-      setIsLoading(false);
-      setIsPlaying(false);
-      setStreamOffline(true);
-      startRetryCountdown(10, () => attemptPlay(true));
-    }
-  }, [clearRetryTimers, startRetryCountdown, primerAndPlay, removePrimerIframe]);
-
-  const togglePlay = () => {
-    if (isPlaying) {
-      audioRef.current?.pause();
-      setIsPlaying(false);
-      clearRetryTimers();
-      setStreamOffline(false);
-      removePrimerIframe();
-    } else {
-      attemptPlay(streamOffline);
-    }
+    if (!audio || !streamUrl) return;
+    if (playing) { audio.pause(); setPlaying(false); return; }
+    setLoading(true); setError("");
+    audio.src = streamUrl;
+    try { await audio.play(); setPlaying(true); } catch { setError("Tap play again to connect to the live source."); }
+    setLoading(false);
   };
 
-  const handleVolumeChange = (value: number[]) => {
-    const newVolume = value[0];
-    setVolume(newVolume);
-    if (audioRef.current) {
-      audioRef.current.volume = newVolume;
-    }
-    if (newVolume === 0) {
-      setIsMuted(true);
-    } else if (isMuted) {
-      setIsMuted(false);
-    }
+  const share = async () => {
+    if (navigator.share) await navigator.share({ title: config.stationName, text: config.tagline, url: window.location.href }).catch(() => undefined);
+    else await navigator.clipboard?.writeText(window.location.href);
   };
-
-  const toggleMute = () => {
-    if (audioRef.current) {
-      if (isMuted) {
-        audioRef.current.volume = volume || 0.5;
-        setIsMuted(false);
-        if (volume === 0) setVolume(0.5);
-      } else {
-        audioRef.current.volume = 0;
-        setIsMuted(true);
-      }
-    }
-  };
-
-  // Attempt autoplay once on mount.
-  useEffect(() => {
-    const audio = audioRef.current;
-    if (!audio) return;
-    audio.volume = volume;
-    // Autoplay is blocked on most mobile browsers — that's fine, user taps play
-    audio.play().then(() => setIsPlaying(true)).catch(() => {});
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  // Listen for mid-stream errors and disconnects
-  useEffect(() => {
-    const audio = audioRef.current;
-    if (!audio) return;
-    const handleError = () => {
-      if (!isPlayingRef.current) return;
-      setIsPlaying(false);
-      setIsLoading(false);
-      setStreamOffline(true);
-      startRetryCountdown(10, () => attemptPlay(true));
-    };
-    const handleStall = () => {
-      const stallTimeout = setTimeout(() => {
-        if (isPlayingRef.current) {
-          audio.pause();
-          setIsPlaying(false);
-          setStreamOffline(true);
-          startRetryCountdown(10, () => attemptPlay(true));
-        }
-      }, 10000);
-      const onPlaying = () => clearTimeout(stallTimeout);
-      audio.addEventListener("playing", onPlaying, { once: true });
-    };
-    audio.addEventListener("error", handleError);
-    audio.addEventListener("stalled", handleStall);
-    return () => {
-      audio.removeEventListener("error", handleError);
-      audio.removeEventListener("stalled", handleStall);
-    };
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [attemptPlay, startRetryCountdown]);
-
-  // Reconnect automatically when the user returns to this tab while offline
-  useEffect(() => {
-    const handleVisibility = () => {
-      if (document.visibilityState === "visible" && streamOfflineRef.current) {
-        clearRetryTimers();
-        attemptPlay(true);
-      }
-    };
-    document.addEventListener("visibilitychange", handleVisibility);
-    return () => document.removeEventListener("visibilitychange", handleVisibility);
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [attemptPlay, clearRetryTimers]);
 
   return (
-    <div className="min-h-[100dvh] bg-black text-white flex flex-col items-center justify-center relative overflow-hidden font-sans">
-      {/* Open-in-Browser Banner — only visible inside Facebook / Messenger */}
-      {isInFBBrowser && (
-        <div className="fixed top-0 left-0 right-0 z-50 bg-[#1877F2] px-4 py-3 flex items-center justify-between gap-3 shadow-lg">
-          <p className="text-white text-sm font-medium leading-tight">
-            For the best experience and sound, open in your browser.
-          </p>
-          <button
-            onClick={() => openInSystemBrowser(setShowIOSHelp)}
-            data-testid="button-open-in-browser"
-            className="shrink-0 bg-white text-[#1877F2] text-sm font-bold px-4 py-1.5 rounded-full hover:bg-gray-100 transition-colors"
-          >
-            Open
-          </button>
-        </div>
-      )}
+    <main className="min-h-[100dvh] overflow-hidden">
+      <header className="mx-auto flex w-full max-w-7xl items-center justify-between px-5 py-6 sm:px-8">
+        <Link href="/" className="flex items-center gap-3" data-testid="link-home">
+          <img src={logoSrc} alt="USALB RADIO" className="h-10 w-[156px] rounded-md object-cover object-left sm:h-12 sm:w-[188px]" data-testid="img-station-logo" />
+        </Link>
+        <nav className="flex items-center gap-3">
+          <span className="hidden eyebrow text-muted-foreground sm:inline">Tirana · Prishtina · diaspora</span>
+          <Link href="/admin" className="rounded-full border border-border bg-card/70 px-4 py-2 text-xs font-bold text-foreground transition hover:border-primary/60 hover:bg-card" data-testid="link-admin">Control room <ArrowUpRight className="ml-1 inline h-3 w-3" /></Link>
+        </nav>
+      </header>
 
-      {/* iOS Safari Instructions Modal */}
-      {showIOSHelp && (
-        <div className="fixed inset-0 z-[100] flex items-end justify-center bg-black/70 backdrop-blur-sm" onClick={() => setShowIOSHelp(false)}>
-          <div className="bg-[#1c1c1e] rounded-t-3xl w-full max-w-md p-6 pb-10 shadow-2xl" onClick={(e) => e.stopPropagation()}>
-            <div className="w-10 h-1 bg-white/20 rounded-full mx-auto mb-6" />
-            <h2 className="text-white text-lg font-semibold mb-2 text-center">Open in Safari</h2>
-            <p className="text-gray-400 text-sm text-center mb-6">Facebook can't open Safari directly. Follow these steps:</p>
-            <ol className="space-y-4 mb-8">
-              <li className="flex items-start gap-3">
-                <span className="w-7 h-7 rounded-full bg-red-600 flex items-center justify-center text-white text-xs font-bold shrink-0">1</span>
-                <p className="text-white text-sm pt-0.5">Tap the <strong>⋯</strong> button in the top-right corner of the screen</p>
-              </li>
-              <li className="flex items-start gap-3">
-                <span className="w-7 h-7 rounded-full bg-red-600 flex items-center justify-center text-white text-xs font-bold shrink-0">2</span>
-                <p className="text-white text-sm pt-0.5">Tap <strong>"Open in Safari"</strong> from the menu</p>
-              </li>
-            </ol>
-            <button onClick={() => setShowIOSHelp(false)} className="w-full py-3 rounded-2xl bg-white/10 text-white text-sm font-medium hover:bg-white/20 transition-colors">
-              Got it
+      <section className="relative mx-auto grid max-w-7xl gap-10 px-5 pb-20 pt-10 sm:px-8 lg:grid-cols-[1.08fr_.92fr] lg:items-center lg:gap-20 lg:pb-28 lg:pt-20">
+        <div className="pointer-events-none absolute -left-40 top-12 h-96 w-96 rounded-full bg-primary/10 blur-3xl" />
+        <div className="relative">
+          <div className="eyebrow mb-6 flex items-center gap-3 text-accent"><span className="h-px w-8 bg-accent" /> live radio / 24—7</div>
+          <h1 className="font-display max-w-3xl text-5xl font-semibold leading-[.98] tracking-[-.055em] text-foreground sm:text-7xl lg:text-[6.3rem]">Stay close to<br /><em className="text-primary not-italic">the signal.</em></h1>
+          <p className="mt-7 max-w-lg text-base leading-7 text-muted-foreground sm:text-lg">{config.tagline || "The Albanian sound, wherever you are."} Tune in for a steady stream of music, voices and stories from the region.</p>
+          <div className="mt-9 flex flex-wrap items-center gap-4">
+            <button onClick={toggle} disabled={loading || !streamUrl} className={cn("group flex items-center gap-3 rounded-full px-6 py-3.5 text-sm font-extrabold transition hover:-translate-y-0.5 disabled:cursor-wait disabled:opacity-60", playing ? "bg-accent text-accent-foreground" : "bg-primary text-primary-foreground")} data-testid="button-toggle-player">
+              {loading ? <LoaderCircle className="h-5 w-5 animate-spin" /> : playing ? <Pause className="h-5 w-5 fill-current" /> : <Play className="h-5 w-5 fill-current" />}
+              {loading ? "Connecting" : playing ? "Pause broadcast" : "Listen live"}
             </button>
+            <button onClick={share} className="flex items-center gap-2 rounded-full border border-border px-5 py-3.5 text-sm font-bold text-foreground transition hover:border-primary/60 hover:bg-card" data-testid="button-share-station"><Share2 className="h-4 w-4" /> Share station</button>
           </div>
-        </div>
-      )}
-
-      {/* Background Ambience */}
-      <div className="absolute inset-0 z-0">
-        <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[800px] h-[800px] bg-red-900/20 rounded-full blur-[120px] pointer-events-none mix-blend-screen opacity-50" />
-        <div className="absolute top-0 left-0 w-full h-full bg-gradient-to-b from-black via-[#0a0a0a] to-[#120000] z-0" />
-      </div>
-
-      <div className="relative z-10 w-full max-w-md mx-auto p-8">
-        {/* Player Card */}
-        <div className="bg-[#111] border border-red-900/30 rounded-3xl p-8 shadow-[0_0_50px_-12px_rgba(255,0,0,0.2)] backdrop-blur-xl relative overflow-hidden group">
-          {/* Subtle animated glow inside card */}
-          <div className={cn(
-            "absolute -inset-20 bg-gradient-to-tr from-red-600/10 to-transparent blur-2xl opacity-0 transition-opacity duration-1000",
-            isPlaying && "opacity-100 animate-pulse-fast"
-          )} />
-          
-          <div className="relative z-10 flex flex-col items-center">
-            {/* Live Indicator */}
-            <div className="flex items-center gap-2 mb-8 bg-black/50 px-4 py-1.5 rounded-full border border-red-900/50">
-              <div className={cn(
-                "w-2.5 h-2.5 rounded-full bg-red-600",
-                isPlaying ? "animate-pulse shadow-[0_0_10px_rgba(220,38,38,0.8)]" : "opacity-50"
-              )} />
-              <span className="text-xs font-medium tracking-widest text-red-50 uppercase">
-                Live Broadcast
-              </span>
-            </div>
-
-            {/* Logo / Branding */}
-            <div className="mb-12 text-center">
-              <img
-                src={logoSrc}
-                alt="USALB RADIO"
-                className="w-full max-w-xs mx-auto rounded-xl"
-                data-testid="img-logo"
-              />
-            </div>
-
-            {/* Visualizer (Fake) */}
-            <div className="h-16 flex items-end justify-center gap-1.5 mb-12 w-full px-8">
-              {Array.from({ length: 24 }).map((_, i) => (
-                <div 
-                  key={i}
-                  className={cn(
-                    "w-1.5 bg-red-600/80 rounded-t-sm transition-all duration-300 origin-bottom",
-                    !isPlaying && "h-1"
-                  )}
-                  style={isPlaying ? {
-                    height: `${Math.max(10, Math.random() * 100)}%`,
-                    animation: `equalizer ${0.5 + Math.random() * 1}s ease-in-out infinite alternate`,
-                    animationDelay: `${Math.random() * -2}s`
-                  } : {}}
-                />
-              ))}
-            </div>
-
-            {/* Play Button */}
-            <button
-              onClick={togglePlay}
-              className={cn(
-                "w-28 h-28 rounded-full flex items-center justify-center transition-all duration-500 relative group/btn mb-4",
-                isPlaying 
-                  ? "bg-red-700 hover:bg-red-600 text-white shadow-[0_0_40px_rgba(220,38,38,0.5)]" 
-                  : streamOffline
-                  ? "bg-gray-800 text-gray-400 hover:bg-gray-700 hover:text-white"
-                  : "bg-white text-red-700 hover:bg-gray-100 hover:scale-105 shadow-[0_0_30px_rgba(255,255,255,0.1)]"
-              )}
-            >
-              {isLoading ? (
-                <div className="w-10 h-10 border-4 border-current border-t-transparent rounded-full animate-spin" />
-              ) : isPlaying ? (
-                <Pause className="w-12 h-12 fill-current" />
-              ) : streamOffline ? (
-                <RefreshCw className="w-10 h-10" />
-              ) : (
-                <Play className="w-12 h-12 fill-current ml-2" />
-              )}
-              
-              {/* Ripple Effect when playing */}
-              {isPlaying && (
-                <div className="absolute inset-0 rounded-full border border-red-500 animate-[ping_2s_cubic-bezier(0,0,0.2,1)_infinite] opacity-75" />
-              )}
-            </button>
-
-            {/* Offline / Retry Status */}
-            {streamOffline && !isLoading && (
-              <div className="mb-8 flex flex-col items-center gap-2 text-center">
-                <div className="flex items-center gap-2 text-yellow-500">
-                  <WifiOff className="w-4 h-4" />
-                  <span className="text-sm font-medium">Stream temporarily offline</span>
-                </div>
-                {retryCountdown > 0 ? (
-                  <p className="text-xs text-gray-500">
-                    Retrying in <span className="text-gray-300 font-medium">{retryCountdown}s</span> — or tap above to retry now
-                  </p>
-                ) : (
-                  <p className="text-xs text-gray-500">Tap the button above to retry</p>
-                )}
-              </div>
-            )}
-            {!streamOffline && <div className="mb-8" />}
-
-            {/* Volume Control */}
-            {isIOS ? (
-              <div className="w-full flex items-center justify-center gap-3 bg-black/40 p-4 rounded-2xl border border-white/5">
-                <Volume2 className="w-5 h-5 text-gray-400 shrink-0" />
-                <span className="text-gray-400 text-sm text-center">
-                  Use your phone's volume buttons to adjust
-                </span>
-              </div>
-            ) : (
-              <div className="w-full flex items-center gap-4 bg-black/40 p-4 rounded-2xl border border-white/5">
-                <button 
-                  onClick={toggleMute}
-                  className="text-gray-400 hover:text-white transition-colors"
-                  data-testid="button-mute"
-                >
-                  {isMuted || volume === 0 ? (
-                    <VolumeX className="w-5 h-5" />
-                  ) : (
-                    <Volume2 className="w-5 h-5" />
-                  )}
-                </button>
-                <Slider
-                  value={[isMuted ? 0 : volume]}
-                  max={1}
-                  step={0.01}
-                  onValueChange={handleVolumeChange}
-                  className="cursor-pointer"
-                  data-testid="slider-volume"
-                />
-              </div>
-            )}
-            {/* Share Button + Popup */}
-            <div className="w-full mt-6 relative" ref={shareRef}>
-              <button
-                onClick={() => setShareOpen((o) => !o)}
-                data-testid="button-share"
-                className={cn(
-                  "w-full flex items-center justify-center gap-2 py-3 rounded-2xl border text-sm font-medium transition-all duration-200",
-                  shareOpen
-                    ? "bg-white/10 border-white/20 text-white"
-                    : "bg-white/5 border-white/10 text-gray-300 hover:bg-white/10 hover:text-white"
-                )}
-              >
-                {copied ? <Check className="w-4 h-4 text-green-400" /> : <Share2 className="w-4 h-4" />}
-                {copied ? "Link copied!" : "Share"}
-              </button>
-
-              {shareOpen && (
-                <div className="absolute bottom-full left-0 right-0 mb-3 bg-[#1a1a1a] border border-white/10 rounded-2xl overflow-hidden shadow-[0_-8px_30px_rgba(0,0,0,0.5)] z-50">
-                  <p className="text-center text-xs text-gray-500 uppercase tracking-widest py-3 border-b border-white/5">
-                    Share via
-                  </p>
-                  <div className="p-2 flex flex-col gap-1">
-                    <button
-                      onClick={() => shareOn("facebook")}
-                      data-testid="button-share-facebook"
-                      className="flex items-center gap-3 px-4 py-3 rounded-xl hover:bg-white/5 transition-colors text-left w-full"
-                    >
-                      <div className="w-9 h-9 rounded-full bg-[#1877F2] flex items-center justify-center shrink-0">
-                        <SiFacebook className="w-4 h-4 text-white" />
-                      </div>
-                      <span className="text-white font-medium text-sm">Facebook</span>
-                    </button>
-                    <button
-                      onClick={() => shareOn("messenger")}
-                      data-testid="button-share-messenger"
-                      className="flex items-center gap-3 px-4 py-3 rounded-xl hover:bg-white/5 transition-colors text-left w-full"
-                    >
-                      <div className="w-9 h-9 rounded-full bg-gradient-to-br from-[#00B2FF] to-[#006AFF] flex items-center justify-center shrink-0">
-                        <SiMessenger className="w-4 h-4 text-white" />
-                      </div>
-                      <span className="text-white font-medium text-sm">Messenger</span>
-                    </button>
-                    <button
-                      onClick={() => shareOn("whatsapp")}
-                      data-testid="button-share-whatsapp"
-                      className="flex items-center gap-3 px-4 py-3 rounded-xl hover:bg-white/5 transition-colors text-left w-full"
-                    >
-                      <div className="w-9 h-9 rounded-full bg-[#25D366] flex items-center justify-center shrink-0">
-                        <SiWhatsapp className="w-4 h-4 text-white" />
-                      </div>
-                      <span className="text-white font-medium text-sm">WhatsApp</span>
-                    </button>
-                    <button
-                      onClick={copyLink}
-                      data-testid="button-copy-link"
-                      className="flex items-center gap-3 px-4 py-3 rounded-xl hover:bg-white/5 transition-colors text-left w-full"
-                    >
-                      <div className={cn(
-                        "w-9 h-9 rounded-full flex items-center justify-center shrink-0 transition-colors",
-                        copied ? "bg-green-500" : "bg-white/10"
-                      )}>
-                        {copied ? <Check className="w-4 h-4 text-white" /> : <Copy className="w-4 h-4 text-white" />}
-                      </div>
-                      <span className="text-white font-medium text-sm">{copied ? "Copied!" : "Copy link"}</span>
-                    </button>
-                  </div>
-                </div>
-              )}
-            </div>
+          {error && <p className="mt-4 flex items-center gap-2 text-sm text-accent" data-testid="status-stream-error"><WifiOff className="h-4 w-4" />{error}</p>}
+          <div className="mt-12 flex flex-wrap gap-x-8 gap-y-4 border-t border-border pt-5 text-xs text-muted-foreground">
+            <span className="flex items-center gap-2"><Headphones className="h-4 w-4 text-primary" /> Broadcast from Albania</span>
+            <span className="flex items-center gap-2"><Activity className="h-4 w-4 text-accent" /> Source: {config.sourceType || "live"}</span>
           </div>
         </div>
 
-        {/* Footer info */}
-        <div className="mt-8 text-center flex items-center justify-center gap-2 text-gray-500 text-xs">
-          <Radio className="w-3 h-3" />
-          <span>High Quality Audio Stream</span>
+        <div className="relative">
+          <div className="absolute -inset-3 rounded-[2rem] border border-primary/10" />
+          <div className="glass relative overflow-hidden rounded-[1.7rem] border border-border p-5 shadow-2xl sm:p-7">
+            <div className="absolute right-0 top-0 h-52 w-52 rounded-full bg-primary/10 blur-3xl" />
+            <div className="relative flex items-center justify-between">
+              <span className="eyebrow text-muted-foreground">On air now</span>
+              <span className={cn("flex items-center gap-2 rounded-full border px-3 py-1 text-[10px] font-bold uppercase tracking-widest", isLive ? "border-accent/30 bg-accent/10 text-accent" : "border-border text-muted-foreground")} data-testid="status-live"><i className={cn("h-1.5 w-1.5 rounded-full", isLive ? "bg-accent animate-pulse" : "bg-muted-foreground")} />{isLive ? "Live" : "Standby"}</span>
+            </div>
+            <div className="relative mt-12 flex items-center justify-center">
+              <div className={cn("absolute h-56 w-56 rounded-full border border-primary/20", playing && "animate-[ping_3s_ease-out_infinite]")} />
+              <div className="flex h-48 w-48 items-center justify-center rounded-full border border-primary/30 bg-background shadow-[inset_0_0_45px_rgba(224,89,71,.12)]">
+                <div className="flex h-36 w-36 items-center justify-center rounded-full border border-accent/20 bg-card"><Radio className="h-12 w-12 text-primary" /></div>
+              </div>
+            </div>
+            <div className="relative mt-12 text-center">
+              <div className="flex justify-center"><SignalBars active={playing} /></div>
+              <h2 className="mt-4 font-display text-3xl font-semibold tracking-tight" data-testid="text-show-name">{config.showName || "USALB RADIO"}</h2>
+              <p className="mt-2 text-sm text-muted-foreground">{config.hostName || "USALB Studio"} · {config.genre || "Albanian radio"}</p>
+            </div>
+            <div className="relative mt-8 flex items-center gap-3 rounded-xl border border-border bg-background/60 p-3">
+              <button onClick={() => { setMuted(!muted); if (audioRef.current) audioRef.current.volume = muted ? volume : 0; }} className="rounded-lg p-2 text-muted-foreground transition hover:bg-muted hover:text-foreground" data-testid="button-toggle-mute">{muted ? <VolumeX className="h-4 w-4" /> : <Volume2 className="h-4 w-4" />}</button>
+              <input aria-label="Volume" type="range" min="0" max="1" step=".01" value={muted ? 0 : volume} onChange={(e) => { setVolume(Number(e.target.value)); setMuted(false); }} className="h-1 w-full accent-[hsl(var(--primary))]" data-testid="input-volume" />
+              <span className="font-mono text-[10px] text-muted-foreground">{Math.round((muted ? 0 : volume) * 100)}%</span>
+            </div>
+            <div className="relative mt-4 flex items-center justify-between text-[11px] text-muted-foreground"><span className="flex items-center gap-2"><Wifi className="h-3.5 w-3.5 text-accent" /> Stream health stable</span><span>Updated {lastUpdated}</span></div>
+          </div>
         </div>
-      </div>
+      </section>
 
-      <audio 
-        ref={audioRef} 
-        src={FALLBACK_STREAM_URL}
-        preload="auto"
-      />
-    </div>
+      <section className="border-y border-border bg-card/40">
+        <div className="mx-auto grid max-w-7xl gap-8 px-5 py-10 sm:px-8 md:grid-cols-[1fr_auto] md:items-center">
+          <div><p className="eyebrow text-primary">The frequency</p><h2 className="mt-3 font-display text-3xl font-semibold tracking-tight">A familiar voice in a noisy world.</h2><p className="mt-2 max-w-xl text-sm leading-6 text-muted-foreground">USALB RADIO is made for the commute, the kitchen, the late shift and the long way home. No feed to scroll. Just press play.</p></div>
+          <div className="flex gap-8 text-right"><div><p className="font-display text-3xl text-accent">01</p><p className="eyebrow mt-1 text-muted-foreground">station</p></div><div><p className="font-display text-3xl text-accent">AL</p><p className="eyebrow mt-1 text-muted-foreground">everywhere</p></div></div>
+        </div>
+      </section>
+      <footer className="mx-auto flex max-w-7xl flex-col gap-3 px-5 py-8 text-xs text-muted-foreground sm:flex-row sm:items-center sm:justify-between sm:px-8"><span>© USALB RADIO · Albanian broadcast, wherever you are.</span><span className="flex items-center gap-2"><Info className="h-3.5 w-3.5" /> Your one-tap radio home</span></footer>
+      <audio ref={audioRef} onPause={() => setPlaying(false)} onPlaying={() => setPlaying(true)} onError={() => { setPlaying(false); setError("The live source is unavailable right now."); }} preload="none" />
+    </main>
   );
 }

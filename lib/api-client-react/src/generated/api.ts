@@ -5,18 +5,30 @@
  * API specification
  * OpenAPI spec version: 0.1.0
  */
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery } from "@tanstack/react-query";
 import type {
+  MutationFunction,
   QueryFunction,
   QueryKey,
+  UseMutationOptions,
+  UseMutationResult,
   UseQueryOptions,
   UseQueryResult,
 } from "@tanstack/react-query";
 
-import type { HealthStatus } from "./api.schemas";
+import type {
+  AdminStation,
+  HealthStatus,
+  RadioConfig,
+  RadioStatus,
+  StationUpdate,
+  StreamTestInput,
+  StreamTestResult,
+  StreamUrl,
+} from "./api.schemas";
 
 import { customFetch } from "../custom-fetch";
-import type { ErrorType } from "../custom-fetch";
+import type { ErrorType, BodyType } from "../custom-fetch";
 
 type AwaitedInput<T> = PromiseLike<T> | T;
 
@@ -99,3 +111,475 @@ export function useHealthCheck<
 
   return { ...query, queryKey: queryOptions.queryKey };
 }
+
+/**
+ * @summary Get the public station configuration
+ */
+export const getGetRadioConfigUrl = () => {
+  return `/api/radio/config`;
+};
+
+export const getRadioConfig = async (
+  options?: RequestInit,
+): Promise<RadioConfig> => {
+  return customFetch<RadioConfig>(getGetRadioConfigUrl(), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getGetRadioConfigQueryKey = () => {
+  return [`/api/radio/config`] as const;
+};
+
+export const getGetRadioConfigQueryOptions = <
+  TData = Awaited<ReturnType<typeof getRadioConfig>>,
+  TError = ErrorType<unknown>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof getRadioConfig>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey = queryOptions?.queryKey ?? getGetRadioConfigQueryKey();
+
+  const queryFn: QueryFunction<Awaited<ReturnType<typeof getRadioConfig>>> = ({
+    signal,
+  }) => getRadioConfig({ signal, ...requestOptions });
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof getRadioConfig>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type GetRadioConfigQueryResult = NonNullable<
+  Awaited<ReturnType<typeof getRadioConfig>>
+>;
+export type GetRadioConfigQueryError = ErrorType<unknown>;
+
+/**
+ * @summary Get the public station configuration
+ */
+
+export function useGetRadioConfig<
+  TData = Awaited<ReturnType<typeof getRadioConfig>>,
+  TError = ErrorType<unknown>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof getRadioConfig>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getGetRadioConfigQueryOptions(options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * @summary Get the current station status
+ */
+export const getGetRadioStatusUrl = () => {
+  return `/api/radio/status`;
+};
+
+export const getRadioStatus = async (
+  options?: RequestInit,
+): Promise<RadioStatus> => {
+  return customFetch<RadioStatus>(getGetRadioStatusUrl(), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getGetRadioStatusQueryKey = () => {
+  return [`/api/radio/status`] as const;
+};
+
+export const getGetRadioStatusQueryOptions = <
+  TData = Awaited<ReturnType<typeof getRadioStatus>>,
+  TError = ErrorType<unknown>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof getRadioStatus>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey = queryOptions?.queryKey ?? getGetRadioStatusQueryKey();
+
+  const queryFn: QueryFunction<Awaited<ReturnType<typeof getRadioStatus>>> = ({
+    signal,
+  }) => getRadioStatus({ signal, ...requestOptions });
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof getRadioStatus>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type GetRadioStatusQueryResult = NonNullable<
+  Awaited<ReturnType<typeof getRadioStatus>>
+>;
+export type GetRadioStatusQueryError = ErrorType<unknown>;
+
+/**
+ * @summary Get the current station status
+ */
+
+export function useGetRadioStatus<
+  TData = Awaited<ReturnType<typeof getRadioStatus>>,
+  TError = ErrorType<unknown>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof getRadioStatus>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getGetRadioStatusQueryOptions(options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * @summary Get the stable listener stream URL
+ */
+export const getGetStreamUrlUrl = () => {
+  return `/api/stream-url`;
+};
+
+export const getStreamUrl = async (
+  options?: RequestInit,
+): Promise<StreamUrl> => {
+  return customFetch<StreamUrl>(getGetStreamUrlUrl(), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getGetStreamUrlQueryKey = () => {
+  return [`/api/stream-url`] as const;
+};
+
+export const getGetStreamUrlQueryOptions = <
+  TData = Awaited<ReturnType<typeof getStreamUrl>>,
+  TError = ErrorType<unknown>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof getStreamUrl>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey = queryOptions?.queryKey ?? getGetStreamUrlQueryKey();
+
+  const queryFn: QueryFunction<Awaited<ReturnType<typeof getStreamUrl>>> = ({
+    signal,
+  }) => getStreamUrl({ signal, ...requestOptions });
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof getStreamUrl>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type GetStreamUrlQueryResult = NonNullable<
+  Awaited<ReturnType<typeof getStreamUrl>>
+>;
+export type GetStreamUrlQueryError = ErrorType<unknown>;
+
+/**
+ * @summary Get the stable listener stream URL
+ */
+
+export function useGetStreamUrl<
+  TData = Awaited<ReturnType<typeof getStreamUrl>>,
+  TError = ErrorType<unknown>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof getStreamUrl>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getGetStreamUrlQueryOptions(options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * @summary Get editable station settings
+ */
+export const getGetAdminStationUrl = () => {
+  return `/api/admin/station`;
+};
+
+export const getAdminStation = async (
+  options?: RequestInit,
+): Promise<AdminStation> => {
+  return customFetch<AdminStation>(getGetAdminStationUrl(), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getGetAdminStationQueryKey = () => {
+  return [`/api/admin/station`] as const;
+};
+
+export const getGetAdminStationQueryOptions = <
+  TData = Awaited<ReturnType<typeof getAdminStation>>,
+  TError = ErrorType<void>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof getAdminStation>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey = queryOptions?.queryKey ?? getGetAdminStationQueryKey();
+
+  const queryFn: QueryFunction<Awaited<ReturnType<typeof getAdminStation>>> = ({
+    signal,
+  }) => getAdminStation({ signal, ...requestOptions });
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof getAdminStation>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type GetAdminStationQueryResult = NonNullable<
+  Awaited<ReturnType<typeof getAdminStation>>
+>;
+export type GetAdminStationQueryError = ErrorType<void>;
+
+/**
+ * @summary Get editable station settings
+ */
+
+export function useGetAdminStation<
+  TData = Awaited<ReturnType<typeof getAdminStation>>,
+  TError = ErrorType<void>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof getAdminStation>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getGetAdminStationQueryOptions(options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * @summary Update station settings and stream source
+ */
+export const getUpdateAdminStationUrl = () => {
+  return `/api/admin/station`;
+};
+
+export const updateAdminStation = async (
+  stationUpdate: StationUpdate,
+  options?: RequestInit,
+): Promise<AdminStation> => {
+  return customFetch<AdminStation>(getUpdateAdminStationUrl(), {
+    ...options,
+    method: "PUT",
+    headers: { "Content-Type": "application/json", ...options?.headers },
+    body: JSON.stringify(stationUpdate),
+  });
+};
+
+export const getUpdateAdminStationMutationOptions = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof updateAdminStation>>,
+    TError,
+    { data: BodyType<StationUpdate> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof updateAdminStation>>,
+  TError,
+  { data: BodyType<StationUpdate> },
+  TContext
+> => {
+  const mutationKey = ["updateAdminStation"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof updateAdminStation>>,
+    { data: BodyType<StationUpdate> }
+  > = (props) => {
+    const { data } = props ?? {};
+
+    return updateAdminStation(data, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type UpdateAdminStationMutationResult = NonNullable<
+  Awaited<ReturnType<typeof updateAdminStation>>
+>;
+export type UpdateAdminStationMutationBody = BodyType<StationUpdate>;
+export type UpdateAdminStationMutationError = ErrorType<void>;
+
+/**
+ * @summary Update station settings and stream source
+ */
+export const useUpdateAdminStation = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof updateAdminStation>>,
+    TError,
+    { data: BodyType<StationUpdate> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof updateAdminStation>>,
+  TError,
+  { data: BodyType<StationUpdate> },
+  TContext
+> => {
+  return useMutation(getUpdateAdminStationMutationOptions(options));
+};
+
+/**
+ * @summary Test a configured upstream stream source
+ */
+export const getTestAdminStreamUrl = () => {
+  return `/api/admin/stream/test`;
+};
+
+export const testAdminStream = async (
+  streamTestInput: StreamTestInput,
+  options?: RequestInit,
+): Promise<StreamTestResult> => {
+  return customFetch<StreamTestResult>(getTestAdminStreamUrl(), {
+    ...options,
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...options?.headers },
+    body: JSON.stringify(streamTestInput),
+  });
+};
+
+export const getTestAdminStreamMutationOptions = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof testAdminStream>>,
+    TError,
+    { data: BodyType<StreamTestInput> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof testAdminStream>>,
+  TError,
+  { data: BodyType<StreamTestInput> },
+  TContext
+> => {
+  const mutationKey = ["testAdminStream"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof testAdminStream>>,
+    { data: BodyType<StreamTestInput> }
+  > = (props) => {
+    const { data } = props ?? {};
+
+    return testAdminStream(data, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type TestAdminStreamMutationResult = NonNullable<
+  Awaited<ReturnType<typeof testAdminStream>>
+>;
+export type TestAdminStreamMutationBody = BodyType<StreamTestInput>;
+export type TestAdminStreamMutationError = ErrorType<void>;
+
+/**
+ * @summary Test a configured upstream stream source
+ */
+export const useTestAdminStream = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof testAdminStream>>,
+    TError,
+    { data: BodyType<StreamTestInput> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof testAdminStream>>,
+  TError,
+  { data: BodyType<StreamTestInput> },
+  TContext
+> => {
+  return useMutation(getTestAdminStreamMutationOptions(options));
+};

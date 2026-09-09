@@ -14,3 +14,107 @@ import * as zod from "zod";
 export const HealthCheckResponse = zod.object({
   status: zod.string(),
 });
+
+/**
+ * @summary Get the public station configuration
+ */
+export const GetRadioConfigResponse = zod.object({
+  stationName: zod.string(),
+  tagline: zod.string(),
+  genre: zod.string(),
+  hostName: zod.string(),
+  showName: zod.string(),
+  sourceType: zod.enum(["icecast", "mp3", "encoder"]),
+  streamUrl: zod.string(),
+  listenerUrl: zod.string(),
+  isLive: zod.boolean(),
+  updatedAt: zod.coerce.date(),
+});
+
+/**
+ * @summary Get the current station status
+ */
+export const GetRadioStatusResponse = zod.object({
+  isLive: zod.boolean(),
+  sourceType: zod.enum(["icecast", "mp3", "encoder"]),
+  message: zod.string(),
+  updatedAt: zod.coerce.date(),
+});
+
+/**
+ * @summary Get the stable listener stream URL
+ */
+export const GetStreamUrlResponse = zod.object({
+  url: zod.string(),
+  source: zod.enum(["stable", "fallback"]),
+});
+
+/**
+ * @summary Get editable station settings
+ */
+export const GetAdminStationResponse = zod
+  .object({
+    stationName: zod.string(),
+    tagline: zod.string(),
+    genre: zod.string(),
+    hostName: zod.string(),
+    showName: zod.string(),
+    sourceType: zod.enum(["icecast", "mp3", "encoder"]),
+    streamUrl: zod.string(),
+    listenerUrl: zod.string(),
+    isLive: zod.boolean(),
+    updatedAt: zod.coerce.date(),
+  })
+  .and(
+    zod.object({
+      sourceUrl: zod.string(),
+    }),
+  );
+
+/**
+ * @summary Update station settings and stream source
+ */
+
+export const UpdateAdminStationBody = zod.object({
+  stationName: zod.string().min(1),
+  tagline: zod.string(),
+  genre: zod.string(),
+  hostName: zod.string(),
+  showName: zod.string(),
+  sourceType: zod.enum(["icecast", "mp3", "encoder"]),
+  sourceUrl: zod.string().url(),
+  isLive: zod.boolean(),
+});
+
+export const UpdateAdminStationResponse = zod
+  .object({
+    stationName: zod.string(),
+    tagline: zod.string(),
+    genre: zod.string(),
+    hostName: zod.string(),
+    showName: zod.string(),
+    sourceType: zod.enum(["icecast", "mp3", "encoder"]),
+    streamUrl: zod.string(),
+    listenerUrl: zod.string(),
+    isLive: zod.boolean(),
+    updatedAt: zod.coerce.date(),
+  })
+  .and(
+    zod.object({
+      sourceUrl: zod.string(),
+    }),
+  );
+
+/**
+ * @summary Test a configured upstream stream source
+ */
+export const TestAdminStreamBody = zod.object({
+  sourceUrl: zod.string().url(),
+});
+
+export const TestAdminStreamResponse = zod.object({
+  ok: zod.boolean(),
+  reachable: zod.boolean(),
+  contentType: zod.string().nullable(),
+  message: zod.string(),
+});

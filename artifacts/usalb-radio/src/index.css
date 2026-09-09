@@ -1,4 +1,7 @@
+@layer theme, base, clerk, components, utilities;
+@import url('https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Manrope:wght@400;500;600;700;800&family=Space+Grotesk:wght@400;500;600;700&display=swap');
 @import "tailwindcss";
+@import "@clerk/themes/shadcn.css";
 @import "tw-animate-css";
 @plugin "@tailwindcss/typography";
 
@@ -88,67 +91,53 @@
   --elevate-1: rgba(255,255,255, .04);
   --elevate-2: rgba(255,255,255, .09);
 
-  /* Deep black background */
-  --background: 0 0% 4%;
-  --foreground: 0 0% 95%;
+  --background: 204 33% 7%;
+  --foreground: 38 33% 93%;
+  --border: 200 24% 19%;
+  --card: 201 29% 10%;
+  --card-foreground: 38 33% 93%;
+  --card-border: 201 24% 18%;
+  --sidebar: 201 31% 8%;
+  --sidebar-foreground: 38 33% 93%;
+  --sidebar-border: 200 24% 17%;
+  --sidebar-primary: 6 79% 58%;
+  --sidebar-primary-foreground: 204 33% 7%;
+  --sidebar-accent: 201 22% 14%;
+  --sidebar-accent-foreground: 38 33% 93%;
+  --sidebar-ring: 6 79% 58%;
+  --popover: 201 29% 11%;
+  --popover-foreground: 38 33% 93%;
+  --popover-border: 200 24% 19%;
+  --primary: 6 79% 58%;
+  --primary-foreground: 204 33% 7%;
+  --secondary: 196 25% 15%;
+  --secondary-foreground: 38 33% 93%;
+  --muted: 198 21% 14%;
+  --muted-foreground: 201 13% 61%;
+  --accent: 39 85% 62%;
+  --accent-foreground: 204 33% 7%;
+  --destructive: 0 70% 55%;
+  --destructive-foreground: 38 33% 93%;
+  --input: 199 22% 18%;
+  --ring: 6 79% 58%;
+  --chart-1: 6 79% 58%;
+  --chart-2: 39 85% 62%;
+  --chart-3: 183 54% 48%;
+  --chart-4: 205 42% 38%;
+  --chart-5: 26 54% 41%;
+  --app-font-sans: 'Manrope', sans-serif;
+  --app-font-serif: 'Space Grotesk', sans-serif;
+  --app-font-mono: 'DM Mono', monospace;
+  --radius: .85rem;
 
-  --border: 0 0% 15%;
-  
-  --card: 0 0% 8%;
-  --card-foreground: 0 0% 95%;
-  --card-border: 0 0% 12%;
-
-  --sidebar: 0 0% 6%;
-  --sidebar-foreground: 0 0% 95%;
-  --sidebar-border: 0 0% 15%;
-  --sidebar-primary: 0 100% 50%;
-  --sidebar-primary-foreground: 0 0% 100%;
-  --sidebar-accent: 0 0% 15%;
-  --sidebar-accent-foreground: 0 0% 95%;
-  --sidebar-ring: 0 100% 50%;
-
-  --popover: 0 0% 6%;
-  --popover-foreground: 0 0% 95%;
-  --popover-border: 0 0% 15%;
-
-  /* Red accent */
-  --primary: 0 100% 50%;
-  --primary-foreground: 0 0% 100%;
-
-  --secondary: 0 0% 12%;
-  --secondary-foreground: 0 0% 95%;
-
-  --muted: 0 0% 15%;
-  --muted-foreground: 0 0% 65%;
-
-  --accent: 0 100% 50%;
-  --accent-foreground: 0 0% 100%;
-
-  --destructive: 0 100% 50%;
-  --destructive-foreground: 0 0% 100%;
-
-  --input: 0 0% 15%;
-  --ring: 0 100% 50%;
-
-  --chart-1: 0 100% 50%;
-  --chart-2: 0 80% 40%;
-  --chart-3: 0 60% 30%;
-  --chart-4: 0 40% 20%;
-  --chart-5: 0 20% 10%;
-
-  --app-font-sans: 'Outfit', 'Inter', sans-serif;
-  --app-font-serif: Georgia, serif;
-  --app-font-mono: Menlo, monospace;
-  --radius: .5rem;
-
-  --shadow-2xs: 0px 2px 0px 0px rgba(255, 0, 0, 0.05);
-  --shadow-xs: 0px 2px 0px 0px rgba(255, 0, 0, 0.1);
-  --shadow-sm: 0px 2px 0px 0px rgba(255, 0, 0, 0.1), 0px 1px 2px -1px rgba(255, 0, 0, 0.1);
-  --shadow: 0px 2px 0px 0px rgba(255, 0, 0, 0.1), 0px 1px 2px -1px rgba(255, 0, 0, 0.1);
-  --shadow-md: 0px 2px 0px 0px rgba(255, 0, 0, 0.15), 0px 2px 4px -1px rgba(255, 0, 0, 0.1);
-  --shadow-lg: 0px 2px 0px 0px rgba(255, 0, 0, 0.2), 0px 4px 6px -1px rgba(255, 0, 0, 0.15);
-  --shadow-xl: 0px 2px 0px 0px rgba(255, 0, 0, 0.3), 0px 8px 10px -1px rgba(255, 0, 0, 0.2);
-  --shadow-2xl: 0px 2px 0px 0px rgba(255, 0, 0, 0.4);
+  --shadow-2xs: 0 2px 0 rgba(0,0,0,.12);
+  --shadow-xs: 0 3px 10px rgba(0,0,0,.16);
+  --shadow-sm: 0 8px 22px rgba(0,0,0,.18);
+  --shadow: 0 14px 35px rgba(0,0,0,.22);
+  --shadow-md: 0 20px 50px rgba(0,0,0,.26);
+  --shadow-lg: 0 26px 70px rgba(0,0,0,.30);
+  --shadow-xl: 0 32px 90px rgba(0,0,0,.34);
+  --shadow-2xl: 0 40px 110px rgba(0,0,0,.38);
   
   --tracking-normal: 0em;
   --spacing: 0.25rem;
@@ -170,5 +159,16 @@
 
   body {
     @apply font-sans antialiased bg-background text-foreground;
+    background-image: radial-gradient(circle at 15% 10%, rgba(33, 79, 91, .16), transparent 34rem), radial-gradient(circle at 90% 70%, rgba(146, 51, 43, .11), transparent 32rem);
   }
 }
+
+@layer utilities {
+  .font-display { font-family: var(--app-font-serif); }
+  .font-mono { font-family: var(--app-font-mono); }
+  .glass { background: rgba(15, 30, 35, .72); backdrop-filter: blur(18px); }
+  .eyebrow { font-family: var(--app-font-mono); font-size: .65rem; letter-spacing: .18em; text-transform: uppercase; }
+}
+
+* { scrollbar-color: hsl(var(--muted)) hsl(var(--background)); }
+button, a, input, select { -webkit-tap-highlight-color: transparent; }

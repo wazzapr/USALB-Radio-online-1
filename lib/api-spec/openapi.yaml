@@ -10,6 +10,10 @@ servers:
 tags:
   - name: health
     description: Health operations
+  - name: radio
+    description: Public station and stream operations
+  - name: admin
+    description: Protected station control operations
 paths:
   /healthz:
     get:
@@ -24,6 +28,105 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/HealthStatus"
+  /radio/config:
+    get:
+      operationId: getRadioConfig
+      tags: [radio]
+      summary: Get the public station configuration
+      responses:
+        "200":
+          description: Public station configuration
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RadioConfig"
+  /radio/status:
+    get:
+      operationId: getRadioStatus
+      tags: [radio]
+      summary: Get the current station status
+      responses:
+        "200":
+          description: Current station status
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RadioStatus"
+  /stream-url:
+    get:
+      operationId: getStreamUrl
+      tags: [radio]
+      summary: Get the stable listener stream URL
+      responses:
+        "200":
+          description: Stable stream URL
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StreamUrl"
+  /admin/station:
+    get:
+      operationId: getAdminStation
+      tags: [admin]
+      summary: Get editable station settings
+      security:
+        - clerkSession: []
+      responses:
+        "200":
+          description: Editable station settings
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AdminStation"
+        "401":
+          description: Authentication required
+    put:
+      operationId: updateAdminStation
+      tags: [admin]
+      summary: Update station settings and stream source
+      security:
+        - clerkSession: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/StationUpdate"
+      responses:
+        "200":
+          description: Updated station settings
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AdminStation"
+        "400":
+          description: Invalid station settings
+        "401":
+          description: Authentication required
+  /admin/stream/test:
+    post:
+      operationId: testAdminStream
+      tags: [admin]
+      summary: Test a configured upstream stream source
+      security:
+        - clerkSession: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/StreamTestInput"
+      responses:
+        "200":
+          description: Stream source test result
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StreamTestResult"
+        "400":
+          description: Invalid source URL
+        "401":
+          description: Authentication required
 components:
   schemas:
     HealthStatus:
@@ -33,4 +136,138 @@ components:
           type: string
       required:
         - status
+    RadioConfig:
+      type: object
+      properties:
+        stationName:
+          type: string
+        tagline:
+          type: string
+        genre:
+          type: string
+        hostName:
+          type: string
+        showName:
+          type: string
+        sourceType:
+          type: string
+          enum: [icecast, mp3, encoder]
+        streamUrl:
+          type: string
+        listenerUrl:
+          type: string
+        isLive:
+          type: boolean
+        updatedAt:
+          type: string
+          format: date-time
+      required:
+        - stationName
+        - tagline
+        - genre
+        - hostName
+        - showName
+        - sourceType
+        - streamUrl
+        - listenerUrl
+        - isLive
+        - updatedAt
+    RadioStatus:
+      type: object
+      properties:
+        isLive:
+          type: boolean
+        sourceType:
+          type: string
+          enum: [icecast, mp3, encoder]
+        message:
+          type: string
+        updatedAt:
+          type: string
+          format: date-time
+      required:
+        - isLive
+        - sourceType
+        - message
+        - updatedAt
+    StreamUrl:
+      type: object
+      properties:
+        url:
+          type: string
+        source:
+          type: string
+          enum: [stable, fallback]
+      required:
+        - url
+        - source
+    AdminStation:
+      allOf:
+        - $ref: "#/components/schemas/RadioConfig"
+        - type: object
+          properties:
+            sourceUrl:
+              type: string
+          required:
+            - sourceUrl
+    StationUpdate:
+      type: object
+      properties:
+        stationName:
+          type: string
+          minLength: 1
+        tagline:
+          type: string
+        genre:
+          type: string
+        hostName:
+          type: string
+        showName:
+          type: string
+        sourceType:
+          type: string
+          enum: [icecast, mp3, encoder]
+        sourceUrl:
+          type: string
+          format: uri
+        isLive:
+          type: boolean
+      required:
+        - stationName
+        - tagline
+        - genre
+        - hostName
+        - showName
+        - sourceType
+        - sourceUrl
+        - isLive
+    StreamTestInput:
+      type: object
+      properties:
+        sourceUrl:
+          type: string
+          format: uri
+      required:
+        - sourceUrl
+    StreamTestResult:
+      type: object
+      properties:
+        ok:
+          type: boolean
+        reachable:
+          type: boolean
+        contentType:
+          type: ["string", "null"]
+        message:
+          type: string
+      required:
+        - ok
+        - reachable
+        - contentType
+        - message
+  securitySchemes:
+    clerkSession:
+      type: apiKey
+      in: cookie
+      name: __session
 
