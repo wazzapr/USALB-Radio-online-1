@@ -1,11 +1,22 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "wouter";
-import { useGetRadioConfig, useGetRadioStatus, useGetStreamUrl } from "@workspace/api-client-react";
+import { useGetRadioConfig, useGetRadioStatus } from "@workspace/api-client-react";
 import { Activity, ArrowUpRight, Headphones, Info, LoaderCircle, Pause, Play, Radio, Share2, Volume2, VolumeX, Wifi, WifiOff } from "lucide-react";
 import logoSrc from "@assets/usalbradio_1775675611808.jpg";
 import { cn } from "@/lib/utils";
 
 const fallback = { stationName: "USALB RADIO", tagline: "Zëri që të mban afër.", genre: "Albanian hits · Talk · Culture", hostName: "USALB Studio", showName: "Live from the studio", sourceType: "icecast", isLive: false };
+
+type LiveStatusMessage = {
+  type: "status";
+  live: boolean;
+  mimeType?: string | null;
+};
+
+function listenerSocketUrl(): string {
+  const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
+  return `${protocol}//${window.location.host}/api/live/ws?role=listener`;
+}
 
 function SignalBars({ active }: { active: boolean }) {
   return <div className="flex h-6 items-end gap-1" aria-label={active ? "Audio is playing" : "Audio is paused"}>{[35, 58, 82, 48, 70].map((height, i) => <span key={i} className={cn("w-1 rounded-t-sm bg-primary transition-transform", active && "animate-[equalizer_1s_ease-in-out_infinite_alternate]")} style={{ height: `${active ? height : 18}%`, animationDelay: `${i * -120}ms` }} />)}</div>;
@@ -18,25 +29,142 @@ export default function Home() {
   const [volume, setVolume] = useState(.82);
   const [muted, setMuted] = useState(false);
   const [error, setError] = useState("");
+  const [broadcastLive, setBroadcastLive] = useState<boolean | null>(null);
   const configQuery = useGetRadioConfig();
   const statusQuery = useGetRadioStatus();
-  const streamQuery = useGetStreamUrl();
   const config = configQuery.data ?? fallback;
-  const isLive = statusQuery.data?.isLive ?? config.isLive;
-  const streamUrl = streamQuery.data?.url || (config as typeof fallback & { listenerUrl?: string }).listenerUrl;
+  const isLive = broadcastLive ?? statusQuery.data?.isLive ?? config.isLive;
   const updated = statusQuery.data?.updatedAt || configQuery.data?.updatedAt;
+  const socketRef = useRef<WebSocket | null>(null);
+  const mediaSourceRef = useRef<MediaSource | null>(null);
+  const sourceBufferRef = useRef<SourceBuffer | null>(null);
+  const queuedChunksRef = useRef<ArrayBuffer[]>([]);
+  const objectUrlRef = useRef<string | null>(null);
+  const mimeTypeRef = useRef("audio/webm;codecs=opus");
 
   useEffect(() => { if (audioRef.current) audioRef.current.volume = volume; }, [volume]);
   const lastUpdated = useMemo(() => updated ? new Date(updated).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : "—", [updated]);
 
+  const cleanupListener = () => {
+    socketRef.current?.close();
+    socketRef.current = null;
+    sourceBufferRef.current = null;
+    mediaSourceRef.current = null;
+    queuedChunksRef.current = [];
+    if (objectUrlRef.current) URL.revokeObjectURL(objectUrlRef.current);
+    objectUrlRef.current = null;
+  };
+
+  const appendQueuedChunks = () => {
+    const sourceBuffer = sourceBufferRef.current;
+    if (!sourceBuffer || sourceBuffer.updating || queuedChunksRef.current.length === 0) return;
+    const nextChunk = queuedChunksRef.current.shift();
+    if (!nextChunk) return;
+
+    try {
+      sourceBuffer.appendBuffer(nextChunk);
+    } catch {
+      queuedChunksRef.current.unshift(nextChunk);
+      setError("The live audio format is not supported by this browser.");
+    }
+  };
+
+  const setupSourceBuffer = () => {
+    const mediaSource = mediaSourceRef.current;
+    if (!mediaSource || mediaSource.readyState !== "open" || sourceBufferRef.current) return;
+
+    const mimeType = MediaSource.isTypeSupported(mimeTypeRef.current)
+      ? mimeTypeRef.current
+      : "audio/webm";
+
+    if (!MediaSource.isTypeSupported(mimeType)) {
+      setError("This browser cannot play the live broadcast format.");
+      return;
+    }
+
+    const sourceBuffer = mediaSource.addSourceBuffer(mimeType);
+    sourceBuffer.mode = "sequence";
+    sourceBuffer.addEventListener("updateend", appendQueuedChunks);
+    sourceBufferRef.current = sourceBuffer;
+    appendQueuedChunks();
+  };
+
   const toggle = async () => {
     const audio = audioRef.current;
-    if (!audio || !streamUrl) return;
-    if (playing) { audio.pause(); setPlaying(false); return; }
-    setLoading(true); setError("");
-    audio.src = streamUrl;
-    try { await audio.play(); setPlaying(true); } catch { setError("Tap play again to connect to the live source."); }
-    setLoading(false);
+    if (!audio) return;
+    if (playing) {
+      audio.pause();
+      cleanupListener();
+      setPlaying(false);
+      return;
+    }
+
+    if (!("MediaSource" in window)) {
+      setError("Live listening requires a modern Chrome, Edge, or Firefox browser.");
+      return;
+    }
+
+    setLoading(true);
+    setError("");
+    setBroadcastLive(null);
+    cleanupListener();
+
+    const mediaSource = new MediaSource();
+    mediaSourceRef.current = mediaSource;
+    objectUrlRef.current = URL.createObjectURL(mediaSource);
+    audio.src = objectUrlRef.current;
+    mediaSource.addEventListener("sourceopen", setupSourceBuffer);
+
+    const socket = new WebSocket(listenerSocketUrl());
+    socket.binaryType = "arraybuffer";
+    socketRef.current = socket;
+
+    socket.onopen = async () => {
+      setLoading(false);
+      try {
+        await audio.play();
+        setPlaying(true);
+      } catch {
+        setError("Tap play again to connect to the live source.");
+      }
+    };
+
+    socket.onmessage = (event) => {
+      if (typeof event.data === "string") {
+        try {
+          const message = JSON.parse(event.data) as LiveStatusMessage;
+          if (message.type === "status") {
+            setBroadcastLive(message.live);
+            if (message.mimeType) {
+              mimeTypeRef.current = message.mimeType;
+              setupSourceBuffer();
+            }
+            if (!message.live) setError("The studio is waiting for the next live broadcast.");
+          }
+        } catch {
+          setError("The live connection sent an invalid status.");
+        }
+        return;
+      }
+
+      const chunk = event.data instanceof ArrayBuffer ? event.data : null;
+      if (!chunk) return;
+      queuedChunksRef.current.push(chunk);
+      setupSourceBuffer();
+      appendQueuedChunks();
+    };
+
+    socket.onerror = () => {
+      setLoading(false);
+      setPlaying(false);
+      setError("The live studio connection is unavailable.");
+    };
+
+    socket.onclose = () => {
+      setLoading(false);
+      setPlaying(false);
+      if (broadcastLive) setError("The live broadcast connection ended.");
+    };
   };
 
   const share = async () => {
@@ -63,7 +191,7 @@ export default function Home() {
           <h1 className="font-display max-w-3xl text-5xl font-semibold leading-[.98] tracking-[-.055em] text-foreground sm:text-7xl lg:text-[6.3rem]">Stay close to<br /><em className="text-primary not-italic">the signal.</em></h1>
           <p className="mt-7 max-w-lg text-base leading-7 text-muted-foreground sm:text-lg">{config.tagline || "The Albanian sound, wherever you are."} Tune in for a steady stream of music, voices and stories from the region.</p>
           <div className="mt-9 flex flex-wrap items-center gap-4">
-            <button onClick={toggle} disabled={loading || !streamUrl} className={cn("group flex items-center gap-3 rounded-full px-6 py-3.5 text-sm font-extrabold transition hover:-translate-y-0.5 disabled:cursor-wait disabled:opacity-60", playing ? "bg-accent text-accent-foreground" : "bg-primary text-primary-foreground")} data-testid="button-toggle-player">
+            <button onClick={toggle} disabled={loading} className={cn("group flex items-center gap-3 rounded-full px-6 py-3.5 text-sm font-extrabold transition hover:-translate-y-0.5 disabled:cursor-wait disabled:opacity-60", playing ? "bg-accent text-accent-foreground" : "bg-primary text-primary-foreground")} data-testid="button-toggle-player">
               {loading ? <LoaderCircle className="h-5 w-5 animate-spin" /> : playing ? <Pause className="h-5 w-5 fill-current" /> : <Play className="h-5 w-5 fill-current" />}
               {loading ? "Connecting" : playing ? "Pause broadcast" : "Listen live"}
             </button>
@@ -72,7 +200,7 @@ export default function Home() {
           {error && <p className="mt-4 flex items-center gap-2 text-sm text-accent" data-testid="status-stream-error"><WifiOff className="h-4 w-4" />{error}</p>}
           <div className="mt-12 flex flex-wrap gap-x-8 gap-y-4 border-t border-border pt-5 text-xs text-muted-foreground">
             <span className="flex items-center gap-2"><Headphones className="h-4 w-4 text-primary" /> Broadcast from Albania</span>
-            <span className="flex items-center gap-2"><Activity className="h-4 w-4 text-accent" /> Source: {config.sourceType || "live"}</span>
+             <span className="flex items-center gap-2"><Activity className="h-4 w-4 text-accent" /> Source: {config.sourceType === "browser" ? "Studio console" : config.sourceType || "live"}</span>
           </div>
         </div>
 

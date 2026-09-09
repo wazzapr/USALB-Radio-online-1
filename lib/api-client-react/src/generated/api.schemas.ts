@@ -13,6 +13,7 @@ export type RadioConfigSourceType =
   (typeof RadioConfigSourceType)[keyof typeof RadioConfigSourceType];
 
 export const RadioConfigSourceType = {
+  browser: "browser",
   icecast: "icecast",
   mp3: "mp3",
   encoder: "encoder",
@@ -35,6 +36,7 @@ export type RadioStatusSourceType =
   (typeof RadioStatusSourceType)[keyof typeof RadioStatusSourceType];
 
 export const RadioStatusSourceType = {
+  browser: "browser",
   icecast: "icecast",
   mp3: "mp3",
   encoder: "encoder",
@@ -68,6 +70,7 @@ export type StationUpdateSourceType =
   (typeof StationUpdateSourceType)[keyof typeof StationUpdateSourceType];
 
 export const StationUpdateSourceType = {
+  browser: "browser",
   icecast: "icecast",
   mp3: "mp3",
   encoder: "encoder",
@@ -81,6 +84,7 @@ export interface StationUpdate {
   hostName: string;
   showName: string;
   sourceType: StationUpdateSourceType;
+  /** Empty for browser broadcasts; an HTTP URL for external sources. */
   sourceUrl: string;
   isLive: boolean;
 }

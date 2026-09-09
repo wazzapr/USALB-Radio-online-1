@@ -10,6 +10,7 @@ export type RadioConfigSourceType =
   (typeof RadioConfigSourceType)[keyof typeof RadioConfigSourceType];
 
 export const RadioConfigSourceType = {
+  browser: "browser",
   icecast: "icecast",
   mp3: "mp3",
   encoder: "encoder",

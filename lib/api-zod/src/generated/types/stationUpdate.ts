@@ -15,6 +15,7 @@ export interface StationUpdate {
   hostName: string;
   showName: string;
   sourceType: StationUpdateSourceType;
+  /** Empty for browser broadcasts; an HTTP URL for external sources. */
   sourceUrl: string;
   isLive: boolean;
 }

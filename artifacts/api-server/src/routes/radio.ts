@@ -1,4 +1,3 @@
-import { Readable } from "node:stream";
 import { Router, type IRouter } from "express";
 import {
   GetRadioConfigResponse,
@@ -20,6 +19,7 @@ import {
   requireAdminSession,
   setAdminSession,
 } from "../middlewares/adminAuth";
+import { getLiveBroadcastStatus } from "../lib/live-relay";
 import {
   getStationSettings,
   isHttpUrl,
@@ -39,13 +39,14 @@ router.get("/radio/config", async (_req, res): Promise<void> => {
 router.get("/radio/status", async (_req, res): Promise<void> => {
   const station = await getStationSettings();
   const publicStation = toPublicStation(station);
+  const broadcastLive = getLiveBroadcastStatus();
   res.json(
     GetRadioStatusResponse.parse({
-      isLive: publicStation.isLive,
+      isLive: broadcastLive,
       sourceType: publicStation.sourceType,
-      message: publicStation.isLive
+      message: broadcastLive
         ? `Live now: ${publicStation.showName}`
-        : "The station is currently offline",
+        : "The station is ready for a browser broadcast",
       updatedAt: publicStation.updatedAt,
     }),
   );
@@ -55,55 +56,10 @@ router.get("/stream-url", (_req, res): void => {
   res.json(GetStreamUrlResponse.parse({ url: STABLE_STREAM_URL, source: "stable" }));
 });
 
-router.get("/live.mp3", async (req, res): Promise<void> => {
-  const station = await getStationSettings();
-
-  if (!station.isLive) {
-    res.status(503).json({ error: "The station is currently offline" });
-    return;
-  }
-
-  if (!isHttpUrl(station.sourceUrl)) {
-    res.status(503).json({ error: "The station source is not configured" });
-    return;
-  }
-
-  const controller = new AbortController();
-  const onClose = () => controller.abort();
-  res.once("close", onClose);
-
-  try {
-    const upstream = await fetch(station.sourceUrl, {
-      headers: {
-        Accept: "audio/mpeg,audio/*;q=0.9,*/*;q=0.8",
-        "User-Agent": "USALB-RADIO/1.0",
-      },
-      signal: controller.signal,
-    });
-
-    if (!upstream.ok || !upstream.body) {
-      res.status(502).json({ error: "The upstream radio source is unavailable" });
-      return;
-    }
-
-    res.status(200);
-    res.setHeader(
-      "Content-Type",
-      upstream.headers.get("content-type")?.split(";")[0] || "audio/mpeg",
-    );
-    res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate");
-    res.setHeader("Access-Control-Allow-Origin", "*");
-    res.setHeader("icy-name", station.stationName);
-    res.setHeader("icy-genre", station.genre);
-    Readable.fromWeb(upstream.body as import("node:stream/web").ReadableStream).pipe(res);
-  } catch (error) {
-    if (!controller.signal.aborted && !res.headersSent) {
-      req.log.warn({ error }, "Unable to connect to upstream stream");
-      res.status(502).json({ error: "Unable to connect to the upstream radio source" });
-    }
-  } finally {
-    res.off("close", onClose);
-  }
+router.get("/live.mp3", (_req, res): void => {
+  res.status(410).json({
+    error: "The station now uses the browser broadcast channel.",
+  });
 });
 
 router.get("/admin/session", (req, res): void => {
@@ -145,8 +101,15 @@ router.put("/admin/station", requireAdminSession, async (req, res): Promise<void
     return;
   }
 
-  if (!isHttpUrl(parsed.data.sourceUrl) || !isSourceType(parsed.data.sourceType)) {
-    res.status(400).json({ error: "Use an http:// or https:// stream source URL" });
+  const validBrowserSource =
+    parsed.data.sourceType === "browser" && parsed.data.sourceUrl.trim() === "";
+  const validExternalSource =
+    parsed.data.sourceType !== "browser" && isHttpUrl(parsed.data.sourceUrl);
+
+  if ((!validBrowserSource && !validExternalSource) || !isSourceType(parsed.data.sourceType)) {
+    res.status(400).json({
+      error: "Choose browser broadcast or provide an http:// or https:// stream source URL",
+    });
     return;
   }
 

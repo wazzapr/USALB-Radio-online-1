@@ -195,7 +195,7 @@ components:
           type: string
         sourceType:
           type: string
-          enum: [icecast, mp3, encoder]
+          enum: [browser, icecast, mp3, encoder]
         streamUrl:
           type: string
         listenerUrl:
@@ -223,7 +223,7 @@ components:
           type: boolean
         sourceType:
           type: string
-          enum: [icecast, mp3, encoder]
+          enum: [browser, icecast, mp3, encoder]
         message:
           type: string
         updatedAt:
@@ -270,10 +270,10 @@ components:
           type: string
         sourceType:
           type: string
-          enum: [icecast, mp3, encoder]
+          enum: [browser, icecast, mp3, encoder]
         sourceUrl:
           type: string
-          format: uri
+          description: Empty for browser broadcasts; an HTTP URL for external sources.
         isLive:
           type: boolean
       required:

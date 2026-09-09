@@ -9,7 +9,7 @@ export const stationSettingsTable = pgTable("station_settings", {
   genre: text("genre").notNull().default("Albanian hits"),
   hostName: text("host_name").notNull().default("USALB RADIO"),
   showName: text("show_name").notNull().default("Live from the studio"),
-  sourceType: text("source_type").notNull().default("icecast"),
+  sourceType: text("source_type").notNull().default("browser"),
   sourceUrl: text("source_url").notNull(),
   isLive: boolean("is_live").notNull().default(true),
   updatedAt: timestamp("updated_at", { withTimezone: true })

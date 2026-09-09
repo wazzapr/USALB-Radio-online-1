@@ -10,6 +10,7 @@ export type StationUpdateSourceType =
   (typeof StationUpdateSourceType)[keyof typeof StationUpdateSourceType];
 
 export const StationUpdateSourceType = {
+  browser: "browser",
   icecast: "icecast",
   mp3: "mp3",
   encoder: "encoder",

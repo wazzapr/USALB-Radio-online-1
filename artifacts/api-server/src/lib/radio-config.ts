@@ -1,13 +1,12 @@
 import { db, stationSettingsTable } from "@workspace/db";
 import { eq } from "drizzle-orm";
 
-export const DEFAULT_SOURCE_URL =
-  "https://uk4freenew.listen2myradio.com/live.mp3?typeportmount=s1_9311_stream_687568716";
+export const DEFAULT_SOURCE_URL = "";
 
 export const STABLE_STREAM_URL = "/api/live.mp3";
 export const LISTENER_URL = "/";
 
-export const sourceTypes = ["icecast", "mp3", "encoder"] as const;
+export const sourceTypes = ["browser", "icecast", "mp3", "encoder"] as const;
 export type SourceType = (typeof sourceTypes)[number];
 
 export function isSourceType(value: string): value is SourceType {
@@ -31,6 +30,16 @@ export async function getStationSettings() {
     .limit(1);
 
   if (existing) {
+    if (existing.sourceUrl.includes("listen2myradio.com")) {
+      const [migrated] = await db
+        .update(stationSettingsTable)
+        .set({ sourceType: "browser", sourceUrl: "", isLive: false })
+        .where(eq(stationSettingsTable.id, 1))
+        .returning();
+
+      return migrated ?? existing;
+    }
+
     return existing;
   }
 

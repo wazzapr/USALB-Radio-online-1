@@ -24,7 +24,7 @@ export const GetRadioConfigResponse = zod.object({
   genre: zod.string(),
   hostName: zod.string(),
   showName: zod.string(),
-  sourceType: zod.enum(["icecast", "mp3", "encoder"]),
+  sourceType: zod.enum(["browser", "icecast", "mp3", "encoder"]),
   streamUrl: zod.string(),
   listenerUrl: zod.string(),
   isLive: zod.boolean(),
@@ -36,7 +36,7 @@ export const GetRadioConfigResponse = zod.object({
  */
 export const GetRadioStatusResponse = zod.object({
   isLive: zod.boolean(),
-  sourceType: zod.enum(["icecast", "mp3", "encoder"]),
+  sourceType: zod.enum(["browser", "icecast", "mp3", "encoder"]),
   message: zod.string(),
   updatedAt: zod.coerce.date(),
 });
@@ -59,7 +59,7 @@ export const GetAdminStationResponse = zod
     genre: zod.string(),
     hostName: zod.string(),
     showName: zod.string(),
-    sourceType: zod.enum(["icecast", "mp3", "encoder"]),
+    sourceType: zod.enum(["browser", "icecast", "mp3", "encoder"]),
     streamUrl: zod.string(),
     listenerUrl: zod.string(),
     isLive: zod.boolean(),
@@ -81,8 +81,12 @@ export const UpdateAdminStationBody = zod.object({
   genre: zod.string(),
   hostName: zod.string(),
   showName: zod.string(),
-  sourceType: zod.enum(["icecast", "mp3", "encoder"]),
-  sourceUrl: zod.string().url(),
+  sourceType: zod.enum(["browser", "icecast", "mp3", "encoder"]),
+  sourceUrl: zod
+    .string()
+    .describe(
+      "Empty for browser broadcasts; an HTTP URL for external sources.",
+    ),
   isLive: zod.boolean(),
 });
 
@@ -93,7 +97,7 @@ export const UpdateAdminStationResponse = zod
     genre: zod.string(),
     hostName: zod.string(),
     showName: zod.string(),
-    sourceType: zod.enum(["icecast", "mp3", "encoder"]),
+    sourceType: zod.enum(["browser", "icecast", "mp3", "encoder"]),
     streamUrl: zod.string(),
     listenerUrl: zod.string(),
     isLive: zod.boolean(),

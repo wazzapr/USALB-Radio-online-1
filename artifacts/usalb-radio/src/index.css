@@ -168,7 +168,29 @@
   .font-mono { font-family: var(--app-font-mono); }
   .glass { background: rgba(15, 30, 35, .72); backdrop-filter: blur(18px); }
   .eyebrow { font-family: var(--app-font-mono); font-size: .65rem; letter-spacing: .18em; text-transform: uppercase; }
+  .console-grid {
+    background-image: linear-gradient(rgba(239, 224, 198, .025) 1px, transparent 1px), linear-gradient(90deg, rgba(239, 224, 198, .025) 1px, transparent 1px);
+    background-size: 22px 22px;
+  }
+  .meter-scan {
+    background-image: linear-gradient(90deg, rgba(239, 224, 198, .07) 1px, transparent 1px);
+    background-size: 8px 100%;
+  }
+  .hardware-inset { box-shadow: inset 0 1px 0 rgba(255,255,255,.045), inset 0 -18px 32px rgba(0,0,0,.14), 0 16px 40px rgba(0,0,0,.18); }
 }
 
 * { scrollbar-color: hsl(var(--muted)) hsl(var(--background)); }
 button, a, input, select { -webkit-tap-highlight-color: transparent; }
+
+@keyframes signal-blink {
+  0%, 42% { opacity: 1; }
+  43%, 100% { opacity: .35; }
+}
+
+@keyframes meter-rise {
+  0%, 100% { transform: scaleY(.35); }
+  50% { transform: scaleY(1); }
+}
+
+.signal-blink { animation: signal-blink 1.2s steps(2, end) infinite; }
+.meter-rise { transform-origin: bottom; animation: meter-rise .9s ease-in-out infinite; }

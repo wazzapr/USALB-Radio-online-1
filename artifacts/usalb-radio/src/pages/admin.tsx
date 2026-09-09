@@ -34,6 +34,7 @@ import {
 } from "lucide-react";
 import logoSrc from "@assets/usalbradio_1775675611808.jpg";
 import { cn } from "@/lib/utils";
+import { LiveBroadcastConsole } from "@/components/live-broadcast-console";
 
 type FormState = {
   stationName: string;
@@ -41,7 +42,7 @@ type FormState = {
   genre: string;
   hostName: string;
   showName: string;
-  sourceType: "icecast" | "mp3" | "encoder";
+  sourceType: "browser" | "icecast" | "mp3" | "encoder";
   sourceUrl: string;
   isLive: boolean;
 };
@@ -52,7 +53,7 @@ const emptyForm: FormState = {
   genre: "",
   hostName: "",
   showName: "",
-  sourceType: "icecast",
+  sourceType: "browser",
   sourceUrl: "",
   isLive: false,
 };
@@ -301,6 +302,8 @@ export default function Admin() {
           </div>
         </div>
 
+         <LiveBroadcastConsole stationName={form.stationName} showName={form.showName} />
+
         <div className="grid gap-5 lg:grid-cols-[1.4fr_.8fr]">
           <section className="rounded-2xl border border-border bg-card/70 p-5 shadow-lg sm:p-7">
             <div className="mb-7 flex items-center justify-between border-b border-border pb-5">
@@ -331,9 +334,10 @@ export default function Admin() {
               <label className="block">
                 <span className="eyebrow mb-2 block text-muted-foreground">Source type</span>
                 <select value={form.sourceType} onChange={(event) => set("sourceType", event.target.value)} className="w-full rounded-xl border border-input bg-background/70 px-4 py-3 text-sm text-foreground outline-none focus:border-primary" data-testid="select-source-type">
-                  <option value="icecast">Icecast</option>
-                  <option value="mp3">MP3 stream</option>
-                  <option value="encoder">Encoder</option>
+                   <option value="browser">Browser studio</option>
+                   <option value="icecast">Icecast</option>
+                   <option value="mp3">MP3 stream</option>
+                   <option value="encoder">Encoder</option>
                 </select>
               </label>
               <div className="flex items-end">
@@ -346,10 +350,21 @@ export default function Admin() {
                 </label>
               </div>
               <div className="sm:col-span-2">
-                <Field label="Source URL" value={form.sourceUrl} onChange={(value) => set("sourceUrl", value)} placeholder="https://your-icecast-host/live.mp3" testId="input-source-url" />
-                <p className="mt-2 flex items-center gap-1.5 text-xs text-muted-foreground">
-                  <CircleHelp className="h-3.5 w-3.5" /> The upstream address used by BUTT or your station encoder.
-                </p>
+                {form.sourceType === "browser" ? (
+                  <div className="rounded-xl border border-accent/25 bg-accent/10 px-4 py-4 text-sm text-accent">
+                    <p className="font-bold">Browser studio is selected</p>
+                    <p className="mt-1 text-xs leading-5 text-muted-foreground">
+                      Start the Live Desk above to broadcast directly from this computer. No external radio host is needed.
+                    </p>
+                  </div>
+                ) : (
+                  <>
+                    <Field label="Source URL" value={form.sourceUrl} onChange={(value) => set("sourceUrl", value)} placeholder="https://your-icecast-host/live.mp3" testId="input-source-url" />
+                    <p className="mt-2 flex items-center gap-1.5 text-xs text-muted-foreground">
+                      <CircleHelp className="h-3.5 w-3.5" /> The upstream address used by an external encoder.
+                    </p>
+                  </>
+                )}
               </div>
             </div>
 
@@ -357,7 +372,7 @@ export default function Admin() {
               <span className={cn("mr-auto flex items-center gap-2 text-xs", update.isSuccess ? "text-accent" : "text-muted-foreground")} data-testid="status-save">
                 {update.isSuccess ? <><Check className="h-4 w-4" /> Saved to station</> : "Unsaved changes stay local"}
               </span>
-              <button onClick={save} disabled={update.isPending || !form.stationName || !form.sourceUrl} className="flex items-center gap-2 rounded-full bg-primary px-5 py-3 text-sm font-bold text-primary-foreground transition hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-50" data-testid="button-save-station">
+              <button onClick={save} disabled={update.isPending || !form.stationName || (form.sourceType !== "browser" && !form.sourceUrl)} className="flex items-center gap-2 rounded-full bg-primary px-5 py-3 text-sm font-bold text-primary-foreground transition hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-50" data-testid="button-save-station">
                 {update.isPending ? <LoaderCircle className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
                 {update.isPending ? "Saving…" : "Save station"}
               </button>
@@ -371,11 +386,11 @@ export default function Admin() {
                 <div><p className="eyebrow text-muted-foreground">Connection check</p><h2 className="mt-1 text-xl font-bold">Test the source</h2></div>
                 <Signal className="h-5 w-5 text-accent" />
               </div>
-              <p className="mt-3 text-sm leading-6 text-muted-foreground">Check reachability before taking the station live.</p>
-              <button onClick={() => testStream.mutate({ data: { sourceUrl: form.sourceUrl } })} disabled={testStream.isPending || !form.sourceUrl} className="mt-6 flex w-full items-center justify-center gap-2 rounded-xl border border-primary/40 bg-primary/10 px-4 py-3 text-sm font-bold text-primary transition hover:bg-primary/20 disabled:opacity-50" data-testid="button-test-stream">
+              <p className="mt-3 text-sm leading-6 text-muted-foreground">{form.sourceType === "browser" ? "The Live Desk handles the microphone, music, effects, and broadcast connection." : "Check reachability before taking the station live."}</p>
+              {form.sourceType !== "browser" && <button onClick={() => testStream.mutate({ data: { sourceUrl: form.sourceUrl } })} disabled={testStream.isPending || !form.sourceUrl} className="mt-6 flex w-full items-center justify-center gap-2 rounded-xl border border-primary/40 bg-primary/10 px-4 py-3 text-sm font-bold text-primary transition hover:bg-primary/20 disabled:opacity-50" data-testid="button-test-stream">
                 {testStream.isPending ? <LoaderCircle className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
                 {testStream.isPending ? "Testing source…" : "Run stream test"}
-              </button>
+              </button>}
               {testStream.data && <div className={cn("mt-4 rounded-xl border p-4", testStream.data.ok ? "border-accent/30 bg-accent/10" : "border-destructive/30 bg-destructive/10")} data-testid="status-stream-test">
                 <div className="flex items-center gap-2 font-bold">{testStream.data.ok ? <Wifi className="h-4 w-4 text-accent" /> : <WifiOff className="h-4 w-4 text-destructive" />}{testStream.data.ok ? "Source reachable" : "Source needs attention"}</div>
                 <p className="mt-2 text-xs text-muted-foreground">{testStream.data.message}</p>

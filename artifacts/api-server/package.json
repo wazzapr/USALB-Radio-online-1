@@ -12,6 +12,7 @@
   "dependencies": {
     "@clerk/express": "^2.1.66",
     "@clerk/shared": "^4.31.0",
+    "@types/ws": "^8.18.1",
     "@workspace/api-zod": "workspace:*",
     "@workspace/db": "workspace:*",
     "cookie-parser": "^1.4.7",
@@ -20,7 +21,8 @@
     "express": "^5",
     "http-proxy-middleware": "^4.2.0",
     "pino": "^9",
-    "pino-http": "^10"
+    "pino-http": "^10",
+    "ws": "^8.21.3"
   },
   "devDependencies": {
     "@types/cookie-parser": "^1.4.10",
