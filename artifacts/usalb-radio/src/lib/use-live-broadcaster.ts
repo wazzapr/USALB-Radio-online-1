@@ -351,7 +351,7 @@ export function useLiveBroadcaster() {
       if (pcmProcessor && pcmSilence) {
         mixBus.connect(pcmProcessor);
         pcmProcessor.connect(pcmSilence);
-        pcmSilence.gain.value = 0;
+        pcmSilence.gain.value = 0.00001;
         pcmSilence.connect(context.destination);
         pcmProcessor.onaudioprocess = (event) => {
           const socket = socketRef.current;

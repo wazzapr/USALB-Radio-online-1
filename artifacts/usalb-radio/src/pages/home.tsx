@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "wouter";
 import { useGetRadioConfig, useGetRadioStatus } from "@workspace/api-client-react";
-import { Activity, ArrowUpRight, Headphones, Info, LoaderCircle, Pause, Play, Share2, Volume2, VolumeX, Wifi, WifiOff } from "lucide-react";
+import { Activity, ArrowUpRight, Copy, ExternalLink, Globe2, Headphones, Info, Link2, LoaderCircle, MessageCircle, MoreHorizontal, Pause, Play, Send, Share2, Volume2, VolumeX, Wifi, WifiOff } from "lucide-react";
 import logoSrc from "@assets/usalbradio_1775675611808.jpg";
 import { cn } from "@/lib/utils";
 
@@ -88,6 +88,32 @@ export default function Home() {
     objectUrlRef.current = null;
   };
 
+  const preparePcmPlayback = () => {
+    if (audioContextRef.current) {
+      void audioContextRef.current.resume();
+      return true;
+    }
+    const AudioContextConstructor = window.AudioContext
+      ?? (window as Window & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+    if (!AudioContextConstructor) {
+      setError("Audio playback is not supported in this browser.");
+      return false;
+    }
+    try {
+      const context = new AudioContextConstructor();
+      const gain = context.createGain();
+      gain.gain.value = muted ? 0 : volume;
+      gain.connect(context.destination);
+      audioContextRef.current = context;
+      pcmGainRef.current = gain;
+      void context.resume();
+      return true;
+    } catch {
+      setError("Audio playback could not start. Tap the play button again.");
+      return false;
+    }
+  };
+
   const appendQueuedChunks = () => {
     const sourceBuffer = sourceBufferRef.current;
     if (!sourceBuffer || sourceBuffer.updating || queuedChunksRef.current.length === 0) return;
@@ -164,22 +190,17 @@ export default function Home() {
       mediaSourceRef.current = mediaSource;
       objectUrlRef.current = URL.createObjectURL(mediaSource);
       audio.src = objectUrlRef.current;
+      void audio.play().catch(() => undefined);
       mediaSource.addEventListener("sourceopen", setupSourceBuffer);
     }
 
     socket.onopen = async () => {
       try {
         if (format === "pcm") {
-          const AudioContextConstructor = window.AudioContext
-            ?? (window as Window & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
-          if (!AudioContextConstructor) throw new Error("Audio playback is not supported in this browser.");
-          const context = new AudioContextConstructor();
+          if (!preparePcmPlayback()) throw new Error("Audio playback is not supported in this browser.");
+          const context = audioContextRef.current;
+          if (!context) throw new Error("Audio playback is not supported in this browser.");
           await context.resume();
-          audioContextRef.current = context;
-          const gain = context.createGain();
-          gain.gain.value = muted ? 0 : volume;
-          gain.connect(context.destination);
-          pcmGainRef.current = gain;
           pcmNextTimeRef.current = context.currentTime + 0.08;
         } else if (audio) {
           await audio.play();
@@ -260,12 +281,34 @@ export default function Home() {
     setError("");
     setBroadcastLive(null);
     cleanupListener();
-    connectListener(canPlayWebmStream() ? "webm" : "pcm");
+    const format = canPlayWebmStream() ? "webm" : "pcm";
+    if (format === "pcm" && !preparePcmPlayback()) {
+      setLoading(false);
+      return;
+    }
+    connectListener(format);
   };
 
-  const share = async () => {
-    if (navigator.share) await navigator.share({ title: config.stationName, text: config.tagline, url: window.location.href }).catch(() => undefined);
-    else await navigator.clipboard?.writeText(window.location.href);
+  const [shareOpen, setShareOpen] = useState(false);
+  const [copied, setCopied] = useState(false);
+  const hasNativeShare = typeof (navigator as Navigator & { share?: unknown }).share === "function";
+  const shareText = `${config.stationName || "USALB RADIO"} — ${config.tagline || "Listen live"}`;
+  const shareTargets = [
+    { label: "WhatsApp", icon: <MessageCircle className="h-4 w-4" />, url: `https://wa.me/?text=${encodeURIComponent(`${shareText} ${window.location.href}`)}` },
+    { label: "Telegram", icon: <Send className="h-4 w-4" />, url: `https://t.me/share/url?url=${encodeURIComponent(window.location.href)}&text=${encodeURIComponent(shareText)}` },
+    { label: "Facebook", icon: <Globe2 className="h-4 w-4" />, url: `https://www.facebook.com/sharer/sharer.php?u=${encodeURIComponent(window.location.href)}` },
+    { label: "X / Twitter", icon: <ExternalLink className="h-4 w-4" />, url: `https://twitter.com/intent/tweet?text=${encodeURIComponent(shareText)}&url=${encodeURIComponent(window.location.href)}` },
+  ];
+  const share = () => setShareOpen((open) => !open);
+  const shareNative = async () => {
+    if (hasNativeShare) await navigator.share({ title: config.stationName, text: shareText, url: window.location.href }).catch(() => undefined);
+    setShareOpen(false);
+  };
+  const copyShareLink = async () => {
+    await navigator.clipboard?.writeText(window.location.href);
+    setCopied(true);
+    window.setTimeout(() => setCopied(false), 1600);
+    setShareOpen(false);
   };
 
   return (
@@ -291,7 +334,38 @@ export default function Home() {
               {loading ? <LoaderCircle className="h-5 w-5 animate-spin" /> : playing ? <Pause className="h-5 w-5 fill-current" /> : <Play className="h-5 w-5 fill-current" />}
               {loading ? "Connecting" : playing ? "Pause broadcast" : "Listen live"}
             </button>
-            <button onClick={share} className="flex items-center gap-2 rounded-full border border-border px-5 py-3.5 text-sm font-bold text-foreground transition hover:border-primary/60 hover:bg-card" data-testid="button-share-station"><Share2 className="h-4 w-4" /> Share station</button>
+            <div className="relative">
+              <button onClick={share} className="flex items-center gap-2 rounded-full border border-border px-5 py-3.5 text-sm font-bold text-foreground transition hover:border-primary/60 hover:bg-card" aria-expanded={shareOpen} data-testid="button-share-station"><Share2 className="h-4 w-4" /> Share station</button>
+              {shareOpen && (
+                <div className="absolute left-0 top-[calc(100%+0.6rem)] z-20 w-64 rounded-2xl border border-border bg-card p-2 shadow-2xl" role="menu" aria-label="Share station">
+                  <p className="px-3 py-2 text-[10px] font-bold uppercase tracking-[.16em] text-muted-foreground">Share on</p>
+                  {shareTargets.map((target) => (
+                    <a
+                      key={target.label}
+                      href={target.url}
+                      target="_blank"
+                      rel="noreferrer"
+                      onClick={() => setShareOpen(false)}
+                      className="flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-semibold text-foreground transition hover:bg-muted"
+                      role="menuitem"
+                    >
+                      <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-primary/10 text-primary">{target.icon}</span>
+                      {target.label}
+                    </a>
+                  ))}
+                  <button onClick={copyShareLink} className="flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left text-sm font-semibold text-foreground transition hover:bg-muted" role="menuitem">
+                    <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-primary/10 text-primary">{copied ? <Link2 className="h-4 w-4" /> : <Copy className="h-4 w-4" />}</span>
+                    {copied ? "Link copied" : "Copy link"}
+                  </button>
+                  {hasNativeShare && (
+                    <button onClick={shareNative} className="flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left text-sm font-semibold text-foreground transition hover:bg-muted" role="menuitem">
+                      <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-primary/10 text-primary"><MoreHorizontal className="h-4 w-4" /></span>
+                      More apps
+                    </button>
+                  )}
+                </div>
+              )}
+            </div>
           </div>
           {error && <p className="mt-4 flex items-center gap-2 text-sm text-accent" data-testid="status-stream-error"><WifiOff className="h-4 w-4" />{error}</p>}
           <div className="mt-12 flex flex-wrap gap-x-8 gap-y-4 border-t border-border pt-5 text-xs text-muted-foreground">
@@ -309,12 +383,12 @@ export default function Home() {
               <span className={cn("flex items-center gap-2 rounded-full border px-3 py-1 text-[10px] font-bold uppercase tracking-widest", isLive ? "border-accent/30 bg-accent/10 text-accent" : "border-border text-muted-foreground")} data-testid="status-live"><i className={cn("h-1.5 w-1.5 rounded-full", isLive ? "bg-accent animate-pulse" : "bg-muted-foreground")} />{isLive ? "Live" : "Standby"}</span>
             </div>
             <div className="relative mt-12 flex items-center justify-center">
-              <div className={cn("absolute h-56 w-56 rounded-full border border-primary/20", playing && "animate-[ping_3s_ease-out_infinite]")} />
+              <div className={cn("pointer-events-none absolute h-56 w-56 rounded-full border border-primary/20", playing && "animate-[ping_3s_ease-out_infinite]")} />
               <button
                 type="button"
                 onClick={toggle}
                 disabled={loading}
-                className="group flex h-48 w-48 items-center justify-center rounded-full border border-primary/30 bg-background shadow-[inset_0_0_45px_rgba(224,89,71,.12)] transition hover:scale-[1.02] hover:border-primary/60 disabled:cursor-wait disabled:opacity-75"
+                className="group relative z-10 flex h-48 w-48 items-center justify-center rounded-full border border-primary/30 bg-background shadow-[inset_0_0_45px_rgba(224,89,71,.12)] transition hover:scale-[1.02] hover:border-primary/60 disabled:cursor-wait disabled:opacity-75"
                 aria-label={playing ? "Pause live broadcast" : "Play live broadcast"}
                 data-testid="button-center-player"
               >
