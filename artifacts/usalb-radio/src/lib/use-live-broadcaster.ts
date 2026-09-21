@@ -112,6 +112,7 @@ export function useLiveBroadcaster() {
   const registerDisplayEnded = useCallback((stream: MediaStream) => {
     const handleEnded = () => {
       if (displayStreamRef.current !== stream) return;
+      if (stream.getAudioTracks().some((track) => track.readyState !== "ended")) return;
       displayStreamRef.current = null;
       const graph = graphRef.current;
       if (graph?.displayStream === stream) {
@@ -120,7 +121,7 @@ export function useLiveBroadcaster() {
         graph.displaySource = null;
       }
       updateDisplayDetails(null);
-      setError("Screen sharing ended. Choose a new tab, window, or screen before continuing.");
+      setError("Shared audio ended. Choose a new tab, window, or screen before continuing.");
     };
     const handleAudioEnded = () => {
       if (displayStreamRef.current !== stream) return;
@@ -390,6 +391,7 @@ export function useLiveBroadcaster() {
       displayStreamRef.current = nextStream;
       updateDisplayDetails(nextStream);
       registerDisplayEnded(nextStream);
+      nextStream.getVideoTracks().forEach((track) => track.stop());
       if (!graphRef.current) {
         const preview = await ensurePreviewGraph();
         preview.displaySource?.disconnect();
@@ -519,6 +521,7 @@ export function useLiveBroadcaster() {
         displayStreamRef.current = nextStream;
         updateDisplayDetails(nextStream);
         registerDisplayEnded(nextStream);
+        nextStream.getVideoTracks().forEach((track) => track.stop());
         if (previousStream && previousStream !== nextStream) previousStream.getTracks().forEach((track) => track.stop());
         displayStream = nextStream;
       }
