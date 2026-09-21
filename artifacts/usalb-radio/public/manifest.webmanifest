@@ -9,9 +9,9 @@
   "theme_color": "#101c20",
   "icons": [
     {
-      "src": "/usalb-logo-v2.jpg",
+      "src": "/usalb-logo-transparent.png",
       "sizes": "any",
-      "type": "image/jpeg",
+      "type": "image/png",
       "purpose": "any maskable"
     }
   ]

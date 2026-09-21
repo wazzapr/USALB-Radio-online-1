@@ -1,5 +1,5 @@
-const CACHE_NAME = "usalb-radio-shell-v2";
-const APP_SHELL = ["/", "/manifest.webmanifest", "/usalb-logo-v2.jpg"];
+const CACHE_NAME = "usalb-radio-shell-v3";
+const APP_SHELL = ["/", "/manifest.webmanifest", "/usalb-logo-transparent.png"];
 
 self.addEventListener("install", (event) => {
   event.waitUntil(caches.open(CACHE_NAME).then((cache) => cache.addAll(APP_SHELL)));

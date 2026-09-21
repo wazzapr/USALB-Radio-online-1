@@ -35,7 +35,7 @@ import {
 import { cn } from "@/lib/utils";
 import { LiveBroadcastConsole } from "@/components/live-broadcast-console";
 
-const logoSrc = "/usalb-logo-v2.jpg";
+const logoSrc = "/usalb-logo-transparent.png";
 type FormState = {
   stationName: string;
   tagline: string;
@@ -400,7 +400,7 @@ export default function Admin() {
             </section>
             <section className="rounded-2xl border border-border bg-card/70 p-5 shadow-lg sm:p-6">
               <p className="eyebrow text-muted-foreground">Public presence</p>
-              <div className="mt-4 flex items-center gap-3"><img src={logoSrc} alt="" className="h-10 w-28 rounded object-cover object-left" /><div><p className="text-sm font-bold">{form.stationName || "USALB RADIO"}</p><p className="text-xs text-muted-foreground">{form.isLive ? "Broadcasting live" : "Currently in standby"}</p></div></div>
+              <div className="mt-4 flex items-center gap-3"><img src={logoSrc} alt="" className="h-10 w-16 object-contain" /><div><p className="text-sm font-bold">{form.stationName || "USALB RADIO"}</p><p className="text-xs text-muted-foreground">{form.isLive ? "Broadcasting live" : "Currently in standby"}</p></div></div>
               <Link href="/" className="mt-5 flex items-center justify-between rounded-xl border border-border px-4 py-3 text-sm font-semibold transition hover:border-primary/50 hover:bg-background" data-testid="link-view-public">View public player <ExternalLink className="h-4 w-4 text-muted-foreground" /></Link>
             </section>
           </aside>
@@ -426,7 +426,7 @@ function AdminShell({ children }: { children: ReactNode }) {
       <header className="border-b border-border bg-background/80 backdrop-blur">
         <div className="mx-auto flex max-w-6xl items-center justify-between px-5 py-5 sm:px-8">
           <Link href="/" className="flex items-center gap-3" data-testid="link-admin-logo">
-             <img src={logoSrc} alt="USALB RADIO" className="h-11 w-14 rounded-xl bg-white object-cover" />
+             <img src={logoSrc} alt="USALB RADIO" className="h-11 w-14 object-contain" />
              <span className="hidden font-display text-base font-bold sm:inline">USALB <span className="text-primary">RADIO</span></span>
             <span className="hidden border-l border-border pl-3 text-xs font-bold text-muted-foreground sm:inline">Control room</span>
           </Link>
