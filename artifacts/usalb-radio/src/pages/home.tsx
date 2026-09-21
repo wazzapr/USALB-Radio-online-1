@@ -508,7 +508,9 @@ export default function Home() {
         <div className="relative">
           <div className="absolute -inset-3 rounded-[2rem] border border-primary/10" />
            <div className="glass relative overflow-hidden rounded-[1.7rem] border border-border p-5 shadow-2xl sm:p-7">
-             <img src={logoSrc} alt="" aria-hidden="true" className="pointer-events-none absolute inset-0 z-0 h-full w-full object-contain object-[54%_center] opacity-20 mix-blend-screen" />
+             <div className="pointer-events-none absolute inset-0 z-0 flex items-center justify-center" aria-hidden="true">
+              <img src={logoSrc} alt="" className="h-[78%] w-[78%] object-contain opacity-20 mix-blend-screen" />
+            </div>
             <div className="absolute right-0 top-0 h-52 w-52 rounded-full bg-primary/10 blur-3xl" />
              <div className="relative z-10 flex items-center justify-between">
               <span className="eyebrow text-muted-foreground">On air now</span>
