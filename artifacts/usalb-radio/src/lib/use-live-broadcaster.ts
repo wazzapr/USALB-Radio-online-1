@@ -21,6 +21,7 @@ type AudioGraph = {
   musicAnalyser: AnalyserNode;
   voiceAnalyser: AnalyserNode;
   pcmProcessor: ScriptProcessorNode | null;
+  pcmSilence: GainNode | null;
   musicElement: HTMLAudioElement | null;
   displayStream: MediaStream | null;
   displaySource: MediaStreamAudioSourceNode | null;
@@ -469,6 +470,7 @@ export function useLiveBroadcaster() {
       const musicAnalyser = context.createAnalyser();
       const voiceAnalyser = context.createAnalyser();
       const pcmProcessor = typeof context.createScriptProcessor === "function" ? context.createScriptProcessor(4096, 2, 2) : null;
+      const pcmSilence = pcmProcessor ? context.createGain() : null;
       musicAnalyser.fftSize = 256;
       voiceAnalyser.fftSize = 256;
       musicGain.gain.value = musicVolumeRef.current;
@@ -485,9 +487,11 @@ export function useLiveBroadcaster() {
       voiceAnalyser.connect(mixBus);
       mixBus.connect(limiter);
       limiter.connect(masterGain);
-      if (pcmProcessor) {
+      if (pcmProcessor && pcmSilence) {
         masterGain.connect(pcmProcessor);
-        pcmProcessor.connect(context.destination);
+        pcmProcessor.connect(pcmSilence);
+        pcmSilence.gain.value = 0.00001;
+        pcmSilence.connect(context.destination);
         pcmProcessor.onaudioprocess = (event) => {
           const socket = socketRef.current;
           if (!socket || socket.readyState !== WebSocket.OPEN) return;
@@ -529,6 +533,7 @@ export function useLiveBroadcaster() {
         musicAnalyser,
         voiceAnalyser,
         pcmProcessor,
+        pcmSilence,
         musicElement: null,
         displayStream: null,
         displaySource: null,
