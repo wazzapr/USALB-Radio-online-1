@@ -390,7 +390,7 @@ export default function Home() {
       startExternalStream();
       return;
     }
-    const format = canPlayWebmStream() ? "webm" : "pcm";
+    const format: ListenerFormat = "pcm";
     if (format === "pcm" && !preparePcmPlayback()) {
       setLoading(false);
       return;
