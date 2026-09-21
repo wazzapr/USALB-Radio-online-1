@@ -64,6 +64,7 @@ export default function Home() {
   const reconnectTimerRef = useRef<number | null>(null);
   const reconnectAttemptRef = useRef(0);
   const listenerFormatRef = useRef<ListenerFormat>("webm");
+  const webmPlaybackStartedRef = useRef(false);
   const reconnectKindRef = useRef<"live" | "external">("live");
 
   useEffect(() => {
@@ -99,6 +100,7 @@ export default function Home() {
     sourceBufferRef.current = null;
     mediaSourceRef.current = null;
     queuedChunksRef.current = [];
+    webmPlaybackStartedRef.current = false;
     pcmSourcesRef.current.forEach((source) => {
       try {
         source.stop();
@@ -164,6 +166,7 @@ export default function Home() {
   const appendQueuedChunks = () => {
     const sourceBuffer = sourceBufferRef.current;
     if (!sourceBuffer || sourceBuffer.updating || queuedChunksRef.current.length === 0) return;
+
     const nextChunk = queuedChunksRef.current.shift();
     if (!nextChunk) return;
 
@@ -173,6 +176,31 @@ export default function Home() {
       queuedChunksRef.current.unshift(nextChunk);
       setError("The live audio format is not supported by this browser.");
     }
+  };
+
+  const maybeStartWebmPlayback = () => {
+    const audio = audioRef.current;
+    const sourceBuffer = sourceBufferRef.current;
+    if (!audio || !sourceBuffer || webmPlaybackStartedRef.current || sourceBuffer.buffered.length === 0) return;
+
+    const last = sourceBuffer.buffered.length - 1;
+    const bufferedStart = sourceBuffer.buffered.start(last);
+    const bufferedEnd = sourceBuffer.buffered.end(last);
+    const bufferedAhead = bufferedEnd - Math.max(audio.currentTime, bufferedStart);
+
+    if (bufferedAhead < 1) return;
+
+    audio.currentTime = Math.max(audio.currentTime, bufferedStart + 0.05);
+    webmPlaybackStartedRef.current = true;
+    void audio.play().then(() => {
+      setPlaying(true);
+      setLoading(false);
+      setReconnecting(false);
+    }).catch(() => {
+      webmPlaybackStartedRef.current = false;
+      setPlaying(false);
+      setError("Tap the play button again to connect to the live source.");
+    });
   };
 
   const setupSourceBuffer = () => {
@@ -190,9 +218,13 @@ export default function Home() {
 
     const sourceBuffer = mediaSource.addSourceBuffer(mimeType);
     sourceBuffer.mode = "sequence";
-    sourceBuffer.addEventListener("updateend", appendQueuedChunks);
+    sourceBuffer.addEventListener("updateend", () => {
+      appendQueuedChunks();
+      maybeStartWebmPlayback();
+    });
     sourceBufferRef.current = sourceBuffer;
     appendQueuedChunks();
+    maybeStartWebmPlayback();
   };
 
   const enqueuePcmChunk = (chunk: ArrayBuffer) => {
@@ -251,12 +283,16 @@ export default function Home() {
           await context.resume();
           pcmNextTimeRef.current = context.currentTime + 0.08;
         } else if (audio) {
-          await audio.play();
+          // WebM playback starts after a small jitter buffer has accumulated.
+          // This avoids audible gaps when MediaRecorder/WebSocket chunk timing varies.
+          maybeStartWebmPlayback();
         }
-        setLoading(false);
-        setReconnecting(false);
-        reconnectAttemptRef.current = 0;
-        setPlaying(true);
+        if (format === "pcm") {
+          setLoading(false);
+          setReconnecting(false);
+          reconnectAttemptRef.current = 0;
+          setPlaying(true);
+        }
       } catch {
         setLoading(false);
         setPlaying(false);
