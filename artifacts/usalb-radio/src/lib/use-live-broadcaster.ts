@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
-export type BroadcastSource = "pc" | "music";
+export type BroadcastSource = "pc" | "music" | "mic";
 export type BroadcastState = "idle" | "preparing" | "connecting" | "live" | "stopping" | "error";
 export type DisplaySurface = "tab" | "window" | "screen" | "unknown";
 
@@ -15,6 +15,8 @@ type AudioGraph = {
   context: AudioContext;
   destination: MediaStreamAudioDestinationNode;
   mixBus: GainNode;
+  masterGain: GainNode;
+  limiter: DynamicsCompressorNode;
   musicGain: GainNode;
   voiceGain: GainNode;
   musicAnalyser: AnalyserNode;
@@ -51,10 +53,11 @@ export function useLiveBroadcaster() {
   const [state, setState] = useState<BroadcastState>("idle");
   const [error, setError] = useState("");
   const [source, setSource] = useState<BroadcastSource>("pc");
-  const [microphoneEnabled, setMicrophoneEnabled] = useState(true);
+  const [microphoneEnabled, setMicrophoneEnabled] = useState(false);
   const [ducking, setDucking] = useState(true);
   const [musicVolume, setMusicVolume] = useState(0.72);
   const [voiceVolume, setVoiceVolume] = useState(0.88);
+  const [masterVolume, setMasterVolume] = useState(0.88);
   const [musicFile, setMusicFile] = useState<File | null>(null);
   const [pads, setPads] = useState<EffectPad[]>(defaultPads);
   const [musicLevel, setMusicLevel] = useState(0);
@@ -77,12 +80,14 @@ export function useLiveBroadcaster() {
   const duckingRef = useRef(ducking);
   const musicVolumeRef = useRef(musicVolume);
   const voiceVolumeRef = useRef(voiceVolume);
+  const masterVolumeRef = useRef(masterVolume);
 
   sourceRef.current = source;
   microphoneEnabledRef.current = microphoneEnabled;
   duckingRef.current = ducking;
   musicVolumeRef.current = musicVolume;
   voiceVolumeRef.current = voiceVolume;
+  masterVolumeRef.current = masterVolume;
 
   const updateDisplayDetails = useCallback((stream: MediaStream | null) => {
     if (!stream) {
@@ -145,6 +150,8 @@ export function useLiveBroadcaster() {
     graph.pcmProcessor?.disconnect();
     graph.pcmSilence?.disconnect();
     graph.mixBus.disconnect();
+    graph.masterGain.disconnect();
+    graph.limiter.disconnect();
     graph.displaySource?.disconnect();
     graph.displayStream?.getTracks().forEach((track) => track.stop());
     graph.microphoneStream?.getTracks().forEach((track) => track.stop());
@@ -214,6 +221,12 @@ export function useLiveBroadcaster() {
     setVoiceVolume(value);
     const graph = graphRef.current;
     if (graph) graph.voiceGain.gain.setTargetAtTime(value, graph.context.currentTime, 0.02);
+  }, []);
+
+  const setMaster = useCallback((value: number) => {
+    setMasterVolume(value);
+    const graph = graphRef.current;
+    if (graph) graph.masterGain.gain.setTargetAtTime(value, graph.context.currentTime, 0.02);
   }, []);
 
   const setDuck = useCallback((value: boolean) => {
@@ -324,13 +337,18 @@ export function useLiveBroadcaster() {
     shuttingDownRef.current = false;
 
     try {
-      if (!navigator.mediaDevices?.getUserMedia || !navigator.mediaDevices.getDisplayMedia) {
+      if (!navigator.mediaDevices?.getUserMedia) {
         throw new Error("This browser does not support the audio capture tools needed for live broadcast.");
+      }
+      if (sourceRef.current === "pc" && !navigator.mediaDevices.getDisplayMedia) {
+        throw new Error("This browser cannot capture PC/system audio.");
       }
       const context = new AudioContext();
       await context.resume();
       const destination = context.createMediaStreamDestination();
       const mixBus = context.createGain();
+      const limiter = context.createDynamicsCompressor();
+      const masterGain = context.createGain();
       const musicGain = context.createGain();
       const voiceGain = context.createGain();
       const musicAnalyser = context.createAnalyser();
@@ -343,13 +361,21 @@ export function useLiveBroadcaster() {
       voiceAnalyser.fftSize = 256;
       musicGain.gain.value = musicVolumeRef.current;
       voiceGain.gain.value = microphoneEnabledRef.current ? voiceVolumeRef.current : 0;
+      masterGain.gain.value = masterVolumeRef.current;
+      limiter.threshold.value = -6;
+      limiter.knee.value = 6;
+      limiter.ratio.value = 20;
+      limiter.attack.value = 0.003;
+      limiter.release.value = 0.12;
       musicGain.connect(musicAnalyser);
       voiceGain.connect(voiceAnalyser);
       musicAnalyser.connect(mixBus);
       voiceAnalyser.connect(mixBus);
-      mixBus.connect(destination);
+      mixBus.connect(limiter);
+      limiter.connect(masterGain);
+      masterGain.connect(destination);
       if (pcmProcessor && pcmSilence) {
-        mixBus.connect(pcmProcessor);
+        masterGain.connect(pcmProcessor);
         pcmProcessor.connect(pcmSilence);
         pcmSilence.gain.value = 0.00001;
         pcmSilence.connect(context.destination);
@@ -388,6 +414,8 @@ export function useLiveBroadcaster() {
         context,
         destination,
         mixBus,
+        masterGain,
+        limiter,
         musicGain,
         voiceGain,
         musicAnalyser,
@@ -400,8 +428,8 @@ export function useLiveBroadcaster() {
         microphoneStream: null,
       };
       graphRef.current = graph;
-      if (sourceRef.current === "pc" && !displayStream) {
-        throw new Error("Choose a tab, window, or screen preview before going live.");
+      if (sourceRef.current === "pc" && !displayStream && !microphoneEnabledRef.current) {
+        throw new Error("Choose a tab, window, or screen with audio, or enable the microphone.");
       }
       graph.displayStream = displayStream;
       const microphoneStream = microphoneEnabledRef.current
@@ -413,8 +441,8 @@ export function useLiveBroadcaster() {
         const displaySource = context.createMediaStreamSource(displayStream);
         displaySource.connect(musicGain);
         graph.displaySource = displaySource;
-      } else if (sourceRef.current === "pc") {
-        throw new Error("Screen sharing started without system audio. Choose a tab or window with audio enabled, then try again.");
+      } else if (sourceRef.current === "pc" && !microphoneStream) {
+        throw new Error("Screen sharing has no shared audio. Enable audio in the browser dialog, or turn on the microphone.");
       }
 
       let musicElement: HTMLAudioElement | null = null;
@@ -430,6 +458,10 @@ export function useLiveBroadcaster() {
       if (microphoneStream) {
         const microphoneSource = context.createMediaStreamSource(microphoneStream);
         microphoneSource.connect(voiceGain);
+      }
+
+      if (sourceRef.current === "mic" && !microphoneStream) {
+        throw new Error("Enable the microphone before starting a microphone-only broadcast.");
       }
 
       graph.musicElement = musicElement;
@@ -464,7 +496,7 @@ export function useLiveBroadcaster() {
         pcmSampleRate: context.sampleRate,
         pcmChannels: 2,
       }));
-      const recorder = new MediaRecorder(destination.stream, { mimeType });
+      const recorder = new MediaRecorder(destination.stream, { mimeType, audioBitsPerSecond: 128_000 });
       recorderRef.current = recorder;
       recorder.ondataavailable = (event) => {
         if (event.data.size > 0 && socket.readyState === WebSocket.OPEN) socket.send(event.data);
@@ -479,7 +511,7 @@ export function useLiveBroadcaster() {
         void cleanupGraph();
         setState("idle");
       };
-      recorder.start(250);
+      recorder.start(400);
       setState("live");
     } catch (cause) {
       const message = cause instanceof Error ? cause.message : "The broadcast could not be started.";
@@ -519,7 +551,7 @@ export function useLiveBroadcaster() {
       sourceNode.buffer = buffer;
       gain.gain.value = 0.9;
       sourceNode.connect(gain);
-      gain.connect(graph.destination);
+      gain.connect(graph.mixBus);
       sourceNode.start();
       setActivePad(id);
       window.setTimeout(() => setActivePad((current) => (current === id ? null : current)), Math.max(250, buffer.duration * 1000));
@@ -555,6 +587,8 @@ export function useLiveBroadcaster() {
     setMusicVolume: setMusic,
     voiceVolume,
     setVoiceVolume: setVoice,
+    masterVolume,
+    setMasterVolume: setMaster,
     musicFile,
     loadMusic,
     pads,
