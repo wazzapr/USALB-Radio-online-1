@@ -13,7 +13,6 @@ export type EffectPad = {
 
 type AudioGraph = {
   context: AudioContext;
-  destination: MediaStreamAudioDestinationNode;
   mixBus: GainNode;
   masterGain: GainNode;
   limiter: DynamicsCompressorNode;
@@ -22,7 +21,6 @@ type AudioGraph = {
   musicAnalyser: AnalyserNode;
   voiceAnalyser: AnalyserNode;
   pcmProcessor: ScriptProcessorNode | null;
-  pcmSilence: GainNode | null;
   musicElement: HTMLAudioElement | null;
   displayStream: MediaStream | null;
   displaySource: MediaStreamAudioSourceNode | null;
@@ -51,11 +49,6 @@ const defaultPads: EffectPad[] = [
 ];
 const pcmMagic = new Uint8Array([0x50, 0x43, 0x4d, 0x31]);
 
-function chooseMimeType() {
-  const candidates = ["audio/webm;codecs=opus", "audio/webm", "audio/ogg;codecs=opus"];
-  return candidates.find((type) => MediaRecorder.isTypeSupported(type)) ?? "";
-}
-
 function wsUrl() {
   const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
   return `${protocol}//${window.location.host}/api/live/ws?role=broadcaster`;
@@ -83,7 +76,6 @@ export function useLiveBroadcaster() {
   const previewGraphRef = useRef<PreviewGraph | null>(null);
   const displayStreamRef = useRef<MediaStream | null>(null);
   const socketRef = useRef<WebSocket | null>(null);
-  const recorderRef = useRef<MediaRecorder | null>(null);
   const musicUrlRef = useRef<string | null>(null);
   const effectBuffersRef = useRef(new Map<string, AudioBuffer>());
   const duckFrameRef = useRef<number | null>(null);
@@ -226,7 +218,6 @@ export function useLiveBroadcaster() {
     async (message: string) => {
       setError(message);
       setState("error");
-      recorderRef.current = null;
       const socket = socketRef.current;
       socketRef.current = null;
       if (socket && socket.readyState === WebSocket.OPEN) socket.close();
@@ -462,9 +453,6 @@ export function useLiveBroadcaster() {
     shuttingDownRef.current = false;
 
     try {
-      const recorderMimeType = chooseMimeType();
-      if (!recorderMimeType) throw new Error("This browser cannot encode a compatible live audio stream.");
-      const needsPcmFallback = !recorderMimeType.includes("webm");
       if (!navigator.mediaDevices?.getUserMedia) {
         throw new Error("This browser does not support the audio capture tools needed for live broadcast.");
       }
@@ -473,7 +461,6 @@ export function useLiveBroadcaster() {
       }
       const context = new AudioContext({ latencyHint: "balanced", sampleRate: 48000 });
       await context.resume();
-      const destination = context.createMediaStreamDestination();
       const mixBus = context.createGain();
       const limiter = context.createDynamicsCompressor();
       const masterGain = context.createGain();
@@ -481,10 +468,7 @@ export function useLiveBroadcaster() {
       const voiceGain = context.createGain();
       const musicAnalyser = context.createAnalyser();
       const voiceAnalyser = context.createAnalyser();
-      const pcmProcessor = needsPcmFallback && typeof context.createScriptProcessor === "function"
-        ? context.createScriptProcessor(4096, 2, 2)
-        : null;
-      const pcmSilence = pcmProcessor ? context.createGain() : null;
+      const pcmProcessor = typeof context.createScriptProcessor === "function" ? context.createScriptProcessor(4096, 2, 2) : null;
       musicAnalyser.fftSize = 256;
       voiceAnalyser.fftSize = 256;
       musicGain.gain.value = musicVolumeRef.current;
@@ -501,12 +485,9 @@ export function useLiveBroadcaster() {
       voiceAnalyser.connect(mixBus);
       mixBus.connect(limiter);
       limiter.connect(masterGain);
-      masterGain.connect(destination);
-      if (pcmProcessor && pcmSilence) {
+      if (pcmProcessor) {
         masterGain.connect(pcmProcessor);
-        pcmProcessor.connect(pcmSilence);
-        pcmSilence.gain.value = 0.00001;
-        pcmSilence.connect(context.destination);
+        pcmProcessor.connect(context.destination);
         pcmProcessor.onaudioprocess = (event) => {
           const socket = socketRef.current;
           if (!socket || socket.readyState !== WebSocket.OPEN) return;
@@ -540,7 +521,6 @@ export function useLiveBroadcaster() {
 
       const graph: AudioGraph = {
         context,
-        destination,
         mixBus,
         masterGain,
         limiter,
@@ -549,7 +529,6 @@ export function useLiveBroadcaster() {
         musicAnalyser,
         voiceAnalyser,
         pcmProcessor,
-        pcmSilence,
         musicElement: null,
         displayStream: null,
         displaySource: null,
@@ -602,7 +581,7 @@ export function useLiveBroadcaster() {
       socketRef.current = socket;
       setState("connecting");
       socket.onclose = () => {
-        if (!shuttingDownRef.current && recorderRef.current) {
+        if (!shuttingDownRef.current && socketRef.current === socket) {
           void fail("The live relay disconnected. The broadcast has been stopped.");
         }
       };
@@ -617,32 +596,7 @@ export function useLiveBroadcaster() {
           reject(new Error("Could not connect to the live relay. Check the station server and try again."));
         };
       });
-      const mimeType = recorderMimeType;
-      socket.send(JSON.stringify({
-        type: "start",
-        mimeType,
-        pcmSampleRate: context.sampleRate,
-        pcmChannels: 2,
-      }));
-      const recorder = new MediaRecorder(destination.stream, {
-        mimeType,
-        audioBitsPerSecond: 192_000,
-      });
-      recorderRef.current = recorder;
-      recorder.ondataavailable = (event) => {
-        if (event.data.size > 0 && socket.readyState === WebSocket.OPEN) socket.send(event.data);
-      };
-      recorder.onerror = () => {
-        void fail("The browser audio recorder stopped unexpectedly.");
-      };
-      recorder.onstop = () => {
-        if (socket.readyState === WebSocket.OPEN) socket.send(JSON.stringify({ type: "stop" }));
-        socket.close();
-        recorderRef.current = null;
-        void cleanupGraph();
-        setState("idle");
-      };
-      recorder.start(500);
+      socket.send(JSON.stringify({ type: "start", mimeType: "audio/pcm", pcmSampleRate: context.sampleRate, pcmChannels: 2 }));
       setState("live");
     } catch (cause) {
       const message = cause instanceof Error ? cause.message : "The broadcast could not be started.";
@@ -654,11 +608,6 @@ export function useLiveBroadcaster() {
     if (state !== "live" && state !== "connecting" && state !== "preparing") return;
     shuttingDownRef.current = true;
     setState("stopping");
-    const recorder = recorderRef.current;
-    if (recorder && recorder.state !== "inactive") {
-      recorder.stop();
-      return;
-    }
     const socket = socketRef.current;
     if (socket?.readyState === WebSocket.OPEN) socket.send(JSON.stringify({ type: "stop" }));
     socket?.close();
@@ -692,8 +641,6 @@ export function useLiveBroadcaster() {
   }, [pads, readEffect, state]);
 
   useEffect(() => () => {
-    const recorder = recorderRef.current;
-    if (recorder && recorder.state !== "inactive") recorder.stop();
     socketRef.current?.close();
     void cleanupGraph();
     void cleanupPreviewGraph();
