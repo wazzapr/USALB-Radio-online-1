@@ -198,6 +198,14 @@ export function handleLiveStreamRequest(req: IncomingMessage, res: ServerRespons
   const url = new URL(req.url ?? "", `http://${req.headers.host ?? "localhost"}`);
   if (url.pathname !== MP3_STREAM_PATH || req.method !== "GET") return false;
 
+  if (!live || broadcastMode !== "mp3") {
+    res.statusCode = 503;
+    res.setHeader("Content-Type", "text/plain; charset=utf-8");
+    res.setHeader("Cache-Control", "no-store");
+    res.end("USALB live stream is offline.");
+    return true;
+  }
+
   res.statusCode = 200;
   res.setHeader("Content-Type", "audio/mpeg");
   res.setHeader("Cache-Control", "no-cache, no-store, must-revalidate");
@@ -207,13 +215,6 @@ export function handleLiveStreamRequest(req: IncomingMessage, res: ServerRespons
   res.setHeader("Access-Control-Allow-Origin", "*");
   res.setHeader("X-Accel-Buffering", "no");
   res.flushHeaders?.();
-
-  if (!live || broadcastMode !== "mp3") {
-    res.statusCode = 503;
-    res.setHeader("Content-Type", "text/plain; charset=utf-8");
-    res.end("USALB live stream is offline.");
-    return true;
-  }
 
   mp3Listeners.add(res);
   for (const chunk of recentMp3Chunks) {
