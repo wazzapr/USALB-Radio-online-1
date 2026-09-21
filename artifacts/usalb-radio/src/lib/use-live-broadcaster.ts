@@ -29,6 +29,18 @@ type AudioGraph = {
   microphoneStream: MediaStream | null;
 };
 
+type PreviewGraph = {
+  context: AudioContext;
+  musicGain: GainNode;
+  voiceGain: GainNode;
+  musicAnalyser: AnalyserNode;
+  voiceAnalyser: AnalyserNode;
+  musicElement: HTMLAudioElement | null;
+  displayStream: MediaStream | null;
+  displaySource: MediaStreamAudioSourceNode | null;
+  microphoneStream: MediaStream | null;
+};
+
 const defaultPads: EffectPad[] = [
   { id: "pad-1", label: "Stinger", file: null, duration: null },
   { id: "pad-2", label: "Jingle", file: null, duration: null },
@@ -68,6 +80,7 @@ export function useLiveBroadcaster() {
   const [displayHasAudio, setDisplayHasAudio] = useState(false);
 
   const graphRef = useRef<AudioGraph | null>(null);
+  const previewGraphRef = useRef<PreviewGraph | null>(null);
   const displayStreamRef = useRef<MediaStream | null>(null);
   const socketRef = useRef<WebSocket | null>(null);
   const recorderRef = useRef<MediaRecorder | null>(null);
@@ -135,6 +148,55 @@ export function useLiveBroadcaster() {
     setVoiceLevel(0);
   }, []);
 
+  const cleanupPreviewGraph = useCallback(async () => {
+    const preview = previewGraphRef.current;
+    previewGraphRef.current = null;
+    if (!preview) return;
+    preview.musicElement?.pause();
+    if (preview.musicElement) preview.musicElement.src = "";
+    preview.displaySource?.disconnect();
+    preview.displayStream?.getTracks().forEach((track) => track.stop());
+    preview.microphoneStream?.getTracks().forEach((track) => track.stop());
+    preview.musicGain.disconnect();
+    preview.voiceGain.disconnect();
+    preview.musicAnalyser.disconnect();
+    preview.voiceAnalyser.disconnect();
+    if (preview.context.state !== "closed") await preview.context.close();
+  }, []);
+
+  const ensurePreviewGraph = useCallback(async () => {
+    if (graphRef.current) return graphRef.current;
+    if (previewGraphRef.current) {
+      if (previewGraphRef.current.context.state === "suspended") await previewGraphRef.current.context.resume();
+      return previewGraphRef.current;
+    }
+    const context = new AudioContext({ latencyHint: "balanced", sampleRate: 48000 });
+    await context.resume();
+    const musicGain = context.createGain();
+    const voiceGain = context.createGain();
+    const musicAnalyser = context.createAnalyser();
+    const voiceAnalyser = context.createAnalyser();
+    musicAnalyser.fftSize = 256;
+    voiceAnalyser.fftSize = 256;
+    musicGain.gain.value = musicVolumeRef.current;
+    voiceGain.gain.value = microphoneEnabledRef.current ? voiceVolumeRef.current : 0;
+    musicGain.connect(musicAnalyser);
+    voiceGain.connect(voiceAnalyser);
+    const preview: PreviewGraph = {
+      context,
+      musicGain,
+      voiceGain,
+      musicAnalyser,
+      voiceAnalyser,
+      musicElement: null,
+      displayStream: null,
+      displaySource: null,
+      microphoneStream: null,
+    };
+    previewGraphRef.current = preview;
+    return preview;
+  }, []);
+
   const cleanupGraph = useCallback(async () => {
     stopMeter();
     const graph = graphRef.current;
@@ -182,14 +244,18 @@ export function useLiveBroadcaster() {
 
   const runMeter = useCallback(() => {
     const graph = graphRef.current;
-    if (!graph) return;
+    const preview = previewGraphRef.current;
+    const analyserGraph = graph ?? preview;
+    if (!analyserGraph) return;
     const voiceData = new Uint8Array(graph.voiceAnalyser.fftSize);
     const musicData = new Uint8Array(graph.musicAnalyser.fftSize);
     const frame = () => {
       const currentGraph = graphRef.current;
-      if (!currentGraph) return;
-      currentGraph.musicAnalyser.getByteTimeDomainData(musicData);
-      currentGraph.voiceAnalyser.getByteTimeDomainData(voiceData);
+      const currentPreview = previewGraphRef.current;
+      const analyserGraph = currentGraph ?? currentPreview;
+      if (!analyserGraph) return;
+      analyserGraph.musicAnalyser.getByteTimeDomainData(musicData);
+      analyserGraph.voiceAnalyser.getByteTimeDomainData(voiceData);
       let musicSum = 0;
       let voiceSum = 0;
       for (let index = 0; index < musicData.length; index += 1) {
@@ -202,7 +268,7 @@ export function useLiveBroadcaster() {
       const nextVoice = Math.min(1, Math.sqrt(voiceSum / voiceData.length) * 3.2);
       setMusicLevel(nextMusic);
       setVoiceLevel(nextVoice);
-      if (duckingRef.current) {
+      if (currentGraph && duckingRef.current) {
         const duckTarget = nextVoice > 0.045 ? Math.max(0.22, 1 - nextVoice * 1.9) : 1;
         currentGraph.musicGain.gain.setTargetAtTime(musicVolumeRef.current * duckTarget, currentGraph.context.currentTime, 0.045);
       }
@@ -214,13 +280,17 @@ export function useLiveBroadcaster() {
   const setMusic = useCallback((value: number) => {
     setMusicVolume(value);
     const graph = graphRef.current;
-    if (graph) graph.musicGain.gain.setTargetAtTime(value, graph.context.currentTime, 0.02);
+    const preview = previewGraphRef.current;
+    const target = graph ?? preview;
+    if (target) target.musicGain.gain.setTargetAtTime(value, target.context.currentTime, 0.02);
   }, []);
 
   const setVoice = useCallback((value: number) => {
     setVoiceVolume(value);
     const graph = graphRef.current;
-    if (graph) graph.voiceGain.gain.setTargetAtTime(value, graph.context.currentTime, 0.02);
+    const preview = previewGraphRef.current;
+    const target = graph ?? preview;
+    if (target) target.voiceGain.gain.setTargetAtTime(value, target.context.currentTime, 0.02);
   }, []);
 
   const setMaster = useCallback((value: number) => {
@@ -240,7 +310,29 @@ export function useLiveBroadcaster() {
     const next = !microphoneEnabledRef.current;
     setMicrophoneEnabled(next);
     const graph = graphRef.current;
-    if (!graph) return;
+    const preview = previewGraphRef.current;
+    if (!graph && !preview && !next) return;
+    if (!graph && next) {
+      try {
+        const target = await ensurePreviewGraph();
+        const stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true } });
+        target.microphoneStream = stream;
+        const microphoneSource = target.context.createMediaStreamSource(stream);
+        microphoneSource.connect(target.voiceGain);
+        target.voiceGain.gain.setTargetAtTime(voiceVolumeRef.current, target.context.currentTime, 0.02);
+        runMeter();
+        return;
+      } catch {
+        setMicrophoneEnabled(false);
+        setError("Microphone access was not granted. Check the browser permission and try again.");
+        return;
+      }
+    }
+    if (!graph) {
+      if (preview?.microphoneStream) preview.microphoneStream.getAudioTracks().forEach((track) => { track.enabled = false; });
+      preview?.voiceGain.gain.setTargetAtTime(0, preview.context.currentTime, 0.02);
+      return;
+    }
     if (next && !graph.microphoneStream) {
       try {
         const stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true } });
@@ -264,7 +356,26 @@ export function useLiveBroadcaster() {
     if (musicUrlRef.current) URL.revokeObjectURL(musicUrlRef.current);
     musicUrlRef.current = file ? URL.createObjectURL(file) : null;
     setMusicFile(file);
-  }, []);
+    if (!file) return;
+    void (async () => {
+      if (graphRef.current) return;
+      const preview = await ensurePreviewGraph();
+      preview.musicElement?.pause();
+      if (preview.musicElement) preview.musicElement.src = "";
+      const musicElement = new Audio(musicUrlRef.current ?? undefined);
+      musicElement.loop = true;
+      musicElement.preload = "auto";
+      const musicSource = preview.context.createMediaElementSource(musicElement);
+      musicSource.connect(preview.musicGain);
+      preview.musicElement = musicElement;
+      try {
+        await musicElement.play();
+        runMeter();
+      } catch {
+        setError("Music is loaded. Press play/preview in the browser if autoplay is blocked.");
+      }
+    })();
+  }, [ensurePreviewGraph, runMeter]);
 
   const loadEffect = useCallback((id: string, file: File | null) => {
     effectBuffersRef.current.delete(id);
@@ -285,6 +396,18 @@ export function useLiveBroadcaster() {
       displayStreamRef.current = nextStream;
       updateDisplayDetails(nextStream);
       registerDisplayEnded(nextStream);
+      if (!graphRef.current) {
+        const preview = await ensurePreviewGraph();
+        preview.displaySource?.disconnect();
+        preview.displayStream?.getTracks().forEach((track) => track.stop());
+        preview.displayStream = nextStream;
+        if (nextStream.getAudioTracks().length) {
+          const displaySource = preview.context.createMediaStreamSource(nextStream);
+          displaySource.connect(preview.musicGain);
+          preview.displaySource = displaySource;
+        }
+        runMeter();
+      }
       if (previousStream && previousStream !== nextStream) previousStream.getTracks().forEach((track) => track.stop());
     } catch (cause) {
       if (cause instanceof DOMException && cause.name === "NotAllowedError") {
@@ -430,6 +553,7 @@ export function useLiveBroadcaster() {
         displaySource: null,
         microphoneStream: null,
       };
+      await cleanupPreviewGraph();
       graphRef.current = graph;
       if (sourceRef.current === "pc" && !displayStream && !microphoneEnabledRef.current) {
         throw new Error("Choose a tab, window, or screen with audio, or enable the microphone.");
@@ -522,7 +646,7 @@ export function useLiveBroadcaster() {
       const message = cause instanceof Error ? cause.message : "The broadcast could not be started.";
       await fail(message);
     }
-  }, [cleanupGraph, fail, registerDisplayEnded, runMeter, state, updateDisplayDetails]);
+  }, [cleanupGraph, cleanupPreviewGraph, fail, registerDisplayEnded, runMeter, state, updateDisplayDetails]);
 
   const stop = useCallback(() => {
     if (state !== "live" && state !== "connecting" && state !== "preparing") return;
@@ -570,10 +694,11 @@ export function useLiveBroadcaster() {
     if (recorder && recorder.state !== "inactive") recorder.stop();
     socketRef.current?.close();
     void cleanupGraph();
+    void cleanupPreviewGraph();
     displayStreamRef.current?.getTracks().forEach((track) => track.stop());
     displayStreamRef.current = null;
     if (musicUrlRef.current) URL.revokeObjectURL(musicUrlRef.current);
-  }, [cleanupGraph]);
+  }, [cleanupGraph, cleanupPreviewGraph]);
 
   useEffect(() => {
     if (state === "error" && shuttingDownRef.current) setState("idle");
