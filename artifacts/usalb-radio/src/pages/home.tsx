@@ -5,30 +5,7 @@ import { Copy, Download, ExternalLink, Globe2, Headphones, Info, Link2, LoaderCi
 import { cn } from "@/lib/utils";
 
 const logoSrc = "/usalb-logo-transparent.png";
-const fallback = { stationName: "USALB RADIO", tagline: "Zëri që të mban afër.", genre: "Albanian hits · Talk · Culture", hostName: "USALB Studio", showName: "Live from the studio", sourceType: "icecast", isLive: false };
-
-type LiveStatusMessage = {
-  type: "status";
-  live: boolean;
-  mimeType?: string | null;
-  audioMode?: "webm" | "pcm";
-  sampleRate?: number | null;
-  channels?: number | null;
-};
-
-type ListenerFormat = "webm" | "pcm";
-
-const pcmMagic = [0x50, 0x43, 0x4d, 0x31];
-
-function listenerSocketUrl(format: ListenerFormat): string {
-  const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
-  return `${protocol}//${window.location.host}/api/live/ws?role=listener&format=${format}`;
-}
-
-function canPlayWebmStream(): boolean {
-  if (!("MediaSource" in window)) return false;
-  return ["audio/webm;codecs=opus", "audio/webm"].some((mimeType) => MediaSource.isTypeSupported(mimeType));
-}
+const fallback = { stationName: "USALB RADIO", tagline: "Zëri që të mban afër.", genre: "Albanian hits · Talk · Culture", hostName: "USALB Studio", showName: "Live from the studio", sourceType: "browser", isLive: false };
 
 function SignalBars({ active }: { active: boolean }) {
   return <div className="flex h-6 items-end gap-1" aria-label={active ? "Audio is playing" : "Audio is paused"}>{[35, 58, 82, 48, 70].map((height, i) => <span key={i} className={cn("w-1 rounded-t-sm bg-primary transition-transform", active && "animate-[equalizer_1s_ease-in-out_infinite_alternate]")} style={{ height: `${active ? height : 18}%`, animationDelay: `${i * -120}ms` }} />)}</div>;
@@ -49,28 +26,14 @@ export default function Home() {
   const config = configQuery.data ?? fallback;
   const isLive = broadcastLive ?? statusQuery.data?.isLive ?? config.isLive;
   const updated = statusQuery.data?.updatedAt || configQuery.data?.updatedAt;
-  const socketRef = useRef<WebSocket | null>(null);
-  const mediaSourceRef = useRef<MediaSource | null>(null);
-  const sourceBufferRef = useRef<SourceBuffer | null>(null);
-  const queuedChunksRef = useRef<ArrayBuffer[]>([]);
-  const objectUrlRef = useRef<string | null>(null);
-  const mimeTypeRef = useRef("audio/webm;codecs=opus");
-  const audioContextRef = useRef<AudioContext | null>(null);
-  const pcmGainRef = useRef<GainNode | null>(null);
-  const pcmSourcesRef = useRef<Set<AudioBufferSourceNode>>(new Set());
-  const pcmNextTimeRef = useRef(0);
-  const pcmConfigRef = useRef({ sampleRate: 48000, channels: 2 });
   const shouldReconnectRef = useRef(false);
   const reconnectTimerRef = useRef<number | null>(null);
   const reconnectAttemptRef = useRef(0);
-  const listenerFormatRef = useRef<ListenerFormat>("webm");
-  const webmPlaybackStartedRef = useRef(false);
-  const reconnectKindRef = useRef<"live" | "external">("live");
 
   useEffect(() => {
     if (audioRef.current) audioRef.current.volume = muted ? 0 : volume;
-    if (pcmGainRef.current) pcmGainRef.current.gain.value = muted ? 0 : volume;
   }, [muted, volume]);
+
   useEffect(() => {
     const handleInstallPrompt = (event: Event) => {
       event.preventDefault();
@@ -79,323 +42,115 @@ export default function Home() {
     window.addEventListener("beforeinstallprompt", handleInstallPrompt);
     return () => window.removeEventListener("beforeinstallprompt", handleInstallPrompt);
   }, []);
+
   useEffect(() => {
-    const resumeAudio = () => {
-      if (document.visibilityState === "visible" && audioContextRef.current?.state === "suspended") {
-        void audioContextRef.current.resume();
+    let cancelled = false;
+    const poll = async () => {
+      try {
+        const response = await fetch("/api/live/status", { cache: "no-store" });
+        if (!response.ok) return;
+        const data = await response.json() as { live?: boolean };
+        if (!cancelled) setBroadcastLive(data.live === true);
+      } catch {
+        // The player can continue using the native audio connection even if status polling fails.
       }
     };
-    document.addEventListener("visibilitychange", resumeAudio);
-    return () => document.removeEventListener("visibilitychange", resumeAudio);
+    void poll();
+    const timer = window.setInterval(() => void poll(), 2000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+    };
   }, []);
+
+  useEffect(() => {
+    const navigatorWithAudioSession = navigator as Navigator & { audioSession?: { type: string } };
+    if (navigatorWithAudioSession.audioSession) navigatorWithAudioSession.audioSession.type = "playback";
+
+    if ("mediaSession" in navigator) {
+      navigator.mediaSession.metadata = new MediaMetadata({
+        title: config.showName || "USALB RADIO",
+        artist: config.hostName || "USALB Studio",
+        album: config.stationName || "USALB RADIO",
+        artwork: [{ src: `${window.location.origin}${logoSrc}`, sizes: "512x512", type: "image/png" }],
+      });
+      try { navigator.mediaSession.setActionHandler("play", () => void audioRef.current?.play()); } catch {}
+      try { navigator.mediaSession.setActionHandler("pause", () => audioRef.current?.pause()); } catch {}
+      try { navigator.mediaSession.setActionHandler("stop", () => { audioRef.current?.pause(); shouldReconnectRef.current = false; }); } catch {}
+    }
+  }, [config.hostName, config.showName, config.stationName]);
+
   const lastUpdated = useMemo(() => updated ? new Date(updated).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : "—", [updated]);
 
-  const cleanupListener = () => {
+  const clearReconnectTimer = () => {
     if (reconnectTimerRef.current !== null) {
       window.clearTimeout(reconnectTimerRef.current);
       reconnectTimerRef.current = null;
     }
-    socketRef.current?.close();
-    socketRef.current = null;
-    sourceBufferRef.current = null;
-    mediaSourceRef.current = null;
-    queuedChunksRef.current = [];
-    webmPlaybackStartedRef.current = false;
-    pcmSourcesRef.current.forEach((source) => {
-      try {
-        source.stop();
-      } catch {
-        // The source may already have ended.
-      }
-    });
-    pcmSourcesRef.current.clear();
-    if (audioContextRef.current) {
-      void audioContextRef.current.close();
-      audioContextRef.current = null;
-    }
-    pcmGainRef.current = null;
-    if (objectUrlRef.current) URL.revokeObjectURL(objectUrlRef.current);
-    objectUrlRef.current = null;
   };
 
-  const scheduleReconnect = () => {
-    if (!shouldReconnectRef.current || reconnectTimerRef.current !== null) return;
-    const delay = Math.min(12, Math.max(2, 2 ** reconnectAttemptRef.current));
-    reconnectAttemptRef.current += 1;
-    setReconnecting(true);
-    setPlaying(false);
-    setLoading(true);
-    setError(`Connection lost. Reconnecting in ${delay} seconds…`);
-    reconnectTimerRef.current = window.setTimeout(() => {
-      reconnectTimerRef.current = null;
-      cleanupListener();
-      if (reconnectKindRef.current === "external") {
-        startExternalStream();
-      } else {
-        connectListener(listenerFormatRef.current);
-      }
-    }, delay * 1000);
-  };
-
-  const preparePcmPlayback = () => {
-    if (audioContextRef.current) {
-      void audioContextRef.current.resume();
-      return true;
-    }
-    const AudioContextConstructor = window.AudioContext
-      ?? (window as Window & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
-    if (!AudioContextConstructor) {
-      setError("Audio playback is not supported in this browser.");
-      return false;
-    }
-    try {
-      const context = new AudioContextConstructor();
-      const gain = context.createGain();
-      gain.gain.value = muted ? 0 : volume;
-      gain.connect(context.destination);
-      audioContextRef.current = context;
-      pcmGainRef.current = gain;
-      void context.resume();
-      return true;
-    } catch {
-      setError("Audio playback could not start. Tap the play button again.");
-      return false;
-    }
-  };
-
-  const appendQueuedChunks = () => {
-    const sourceBuffer = sourceBufferRef.current;
-    if (!sourceBuffer || sourceBuffer.updating || queuedChunksRef.current.length === 0) return;
-
-    const nextChunk = queuedChunksRef.current.shift();
-    if (!nextChunk) return;
-
-    try {
-      sourceBuffer.appendBuffer(nextChunk);
-    } catch {
-      queuedChunksRef.current.unshift(nextChunk);
-      setError("The live audio format is not supported by this browser.");
-    }
-  };
-
-  const maybeStartWebmPlayback = () => {
-    const audio = audioRef.current;
-    const sourceBuffer = sourceBufferRef.current;
-    if (!audio || !sourceBuffer || webmPlaybackStartedRef.current || sourceBuffer.buffered.length === 0) return;
-
-    const last = sourceBuffer.buffered.length - 1;
-    const bufferedStart = sourceBuffer.buffered.start(last);
-    const bufferedEnd = sourceBuffer.buffered.end(last);
-    const bufferedAhead = bufferedEnd - Math.max(audio.currentTime, bufferedStart);
-
-    if (bufferedAhead < 1) return;
-
-    audio.currentTime = Math.max(audio.currentTime, bufferedStart + 0.05);
-    webmPlaybackStartedRef.current = true;
-    void audio.play().then(() => {
-      setPlaying(true);
-      setLoading(false);
-      setReconnecting(false);
-    }).catch(() => {
-      webmPlaybackStartedRef.current = false;
-      setPlaying(false);
-      setError("Tap the play button again to connect to the live source.");
-    });
-  };
-
-  const setupSourceBuffer = () => {
-    const mediaSource = mediaSourceRef.current;
-    if (!mediaSource || mediaSource.readyState !== "open" || sourceBufferRef.current) return;
-
-    const mimeType = MediaSource.isTypeSupported(mimeTypeRef.current)
-      ? mimeTypeRef.current
-      : "audio/webm";
-
-    if (!MediaSource.isTypeSupported(mimeType)) {
-      setError("This browser cannot play the live broadcast format.");
-      return;
-    }
-
-    const sourceBuffer = mediaSource.addSourceBuffer(mimeType);
-    sourceBuffer.mode = "sequence";
-    sourceBuffer.addEventListener("updateend", () => {
-      appendQueuedChunks();
-      maybeStartWebmPlayback();
-    });
-    sourceBufferRef.current = sourceBuffer;
-    appendQueuedChunks();
-    maybeStartWebmPlayback();
-  };
-
-  const enqueuePcmChunk = (chunk: ArrayBuffer) => {
-    const context = audioContextRef.current;
-    if (!context || chunk.byteLength <= pcmMagic.length) return;
-    const bytes = new Uint8Array(chunk, 0, pcmMagic.length);
-    if (!pcmMagic.every((value, index) => bytes[index] === value)) return;
-
-    const { sampleRate, channels } = pcmConfigRef.current;
-    const frameBytes = channels * 2;
-    const frameCount = Math.floor((chunk.byteLength - pcmMagic.length) / frameBytes);
-    if (!frameCount) return;
-
-    const audioBuffer = context.createBuffer(channels, frameCount, sampleRate);
-    const view = new DataView(chunk, pcmMagic.length);
-    for (let frame = 0; frame < frameCount; frame += 1) {
-      for (let channel = 0; channel < channels; channel += 1) {
-        const offset = (frame * channels + channel) * 2;
-        audioBuffer.getChannelData(channel)[frame] = view.getInt16(offset, true) / 32768;
-      }
-    }
-
-    const source = context.createBufferSource();
-    source.buffer = audioBuffer;
-    source.connect(pcmGainRef.current ?? context.destination);
-    const now = context.currentTime;
-    const startAt = Math.max(pcmNextTimeRef.current, now + 0.04);
-    source.start(startAt);
-    pcmNextTimeRef.current = startAt + audioBuffer.duration;
-    pcmSourcesRef.current.add(source);
-    source.addEventListener("ended", () => pcmSourcesRef.current.delete(source), { once: true });
-  };
-
-  const connectListener = (format: ListenerFormat) => {
-    listenerFormatRef.current = format;
-    const audio = audioRef.current;
-    const socket = new WebSocket(listenerSocketUrl(format));
-    socket.binaryType = "arraybuffer";
-    socketRef.current = socket;
-
-    if (format === "webm" && audio) {
-      const mediaSource = new MediaSource();
-      mediaSourceRef.current = mediaSource;
-      objectUrlRef.current = URL.createObjectURL(mediaSource);
-      audio.src = objectUrlRef.current;
-      void audio.play().catch(() => undefined);
-      mediaSource.addEventListener("sourceopen", setupSourceBuffer);
-    }
-
-    socket.onopen = async () => {
-      try {
-        if (format === "pcm") {
-          if (!preparePcmPlayback()) throw new Error("Audio playback is not supported in this browser.");
-          const context = audioContextRef.current;
-          if (!context) throw new Error("Audio playback is not supported in this browser.");
-          await context.resume();
-          pcmNextTimeRef.current = context.currentTime + 0.08;
-        } else if (audio) {
-          // WebM playback starts after a small jitter buffer has accumulated.
-          // This avoids audible gaps when MediaRecorder/WebSocket chunk timing varies.
-          maybeStartWebmPlayback();
-        }
-        if (format === "pcm") {
-          setLoading(false);
-          setReconnecting(false);
-          reconnectAttemptRef.current = 0;
-          setPlaying(true);
-        }
-      } catch {
-        setLoading(false);
-        setPlaying(false);
-        setError("Tap the play button again to connect to the live source.");
-      }
-    };
-
-    socket.onmessage = (event) => {
-      if (typeof event.data === "string") {
-        try {
-          const message = JSON.parse(event.data) as LiveStatusMessage;
-          if (message.type === "status") {
-            setBroadcastLive(message.live);
-            if (format === "pcm" && message.sampleRate && message.channels) {
-              pcmConfigRef.current = { sampleRate: message.sampleRate, channels: message.channels };
-            }
-            if (format === "webm" && message.mimeType) {
-              if (!MediaSource.isTypeSupported(message.mimeType)) {
-                if (socketRef.current !== socket) return;
-                cleanupListener();
-                setLoading(true);
-                connectListener("pcm");
-                return;
-              }
-              mimeTypeRef.current = message.mimeType;
-              setupSourceBuffer();
-            }
-            if (!message.live) setError("The studio is waiting for the next live broadcast.");
-          }
-        } catch {
-          setError("The live connection sent an invalid status.");
-        }
-        return;
-      }
-
-      const chunk = event.data instanceof ArrayBuffer ? event.data : null;
-      if (!chunk) return;
-      if (format === "pcm") {
-        enqueuePcmChunk(chunk);
-        return;
-      }
-      queuedChunksRef.current.push(chunk);
-      setupSourceBuffer();
-      appendQueuedChunks();
-    };
-
-    socket.onerror = () => {
-      if (socketRef.current !== socket) return;
-      scheduleReconnect();
-    };
-
-    socket.onclose = () => {
-      if (socketRef.current !== socket) return;
-      scheduleReconnect();
-    };
-  };
-
-  const startExternalStream = () => {
+  const stopNativeStream = () => {
+    clearReconnectTimer();
     const audio = audioRef.current;
     if (!audio) return;
-    reconnectKindRef.current = "external";
-    audio.src = "/api/live.mp3";
+    audio.pause();
+    audio.removeAttribute("src");
+    audio.load();
+  };
+
+  const startNativeStream = () => {
+    const audio = audioRef.current;
+    if (!audio) return;
+    setLoading(true);
+    setError("");
+    audio.volume = muted ? 0 : volume;
+    audio.src = `/api/live/stream?client=web&ts=${Date.now()}`;
     audio.load();
     void audio.play().then(() => {
       setLoading(false);
       setReconnecting(false);
       reconnectAttemptRef.current = 0;
       setPlaying(true);
-      setError("");
+      if ("mediaSession" in navigator) navigator.mediaSession.playbackState = "playing";
     }).catch(() => {
-      scheduleReconnect();
+      setLoading(false);
+      setPlaying(false);
+      if (shouldReconnectRef.current) scheduleReconnect();
+      else setError("Tap the play button again to connect to the live source.");
     });
   };
 
+  const scheduleReconnect = () => {
+    if (!shouldReconnectRef.current || reconnectTimerRef.current !== null) return;
+    const delay = Math.min(10, Math.max(1, 2 ** reconnectAttemptRef.current));
+    reconnectAttemptRef.current += 1;
+    setReconnecting(true);
+    setPlaying(false);
+    setLoading(true);
+    setError(`Live connection interrupted. Reconnecting in ${delay} seconds…`);
+    reconnectTimerRef.current = window.setTimeout(() => {
+      reconnectTimerRef.current = null;
+      startNativeStream();
+    }, delay * 1000);
+  };
+
   const toggle = async () => {
-    const audio = audioRef.current;
     if (playing) {
       shouldReconnectRef.current = false;
-      audio?.pause();
-      cleanupListener();
-      audio?.removeAttribute("src");
-      audio?.load();
+      stopNativeStream();
       setPlaying(false);
+      setLoading(false);
+      setReconnecting(false);
+      if ("mediaSession" in navigator) navigator.mediaSession.playbackState = "paused";
       return;
     }
 
     shouldReconnectRef.current = true;
-    reconnectKindRef.current = config.sourceType === "browser" ? "live" : "external";
     reconnectAttemptRef.current = 0;
     setLoading(true);
     setError("");
-    setBroadcastLive(null);
-    cleanupListener();
-    if (config.sourceType !== "browser") {
-      startExternalStream();
-      return;
-    }
-    const format: ListenerFormat = "pcm";
-    if (format === "pcm" && !preparePcmPlayback()) {
-      setLoading(false);
-      return;
-    }
-    connectListener(format);
+    setReconnecting(false);
+    startNativeStream();
   };
 
   const installApp = async () => {
@@ -553,7 +308,7 @@ export default function Home() {
         </div>
       </section>
       <footer className="mx-auto flex max-w-7xl flex-col gap-3 px-5 py-8 text-xs text-muted-foreground sm:flex-row sm:items-center sm:justify-between sm:px-8"><span>© USALB RADIO · Albanian broadcast, wherever you are.</span><span className="flex items-center gap-2"><Info className="h-3.5 w-3.5" /> Your one-tap radio home</span></footer>
-      <audio ref={audioRef} onPause={() => { if (!shouldReconnectRef.current) setPlaying(false); }} onPlaying={() => setPlaying(true)} onError={() => { if (shouldReconnectRef.current) scheduleReconnect(); else { setPlaying(false); setError("The live source is unavailable right now."); } }} onEnded={() => { if (shouldReconnectRef.current) scheduleReconnect(); }} preload="none" />
+      <audio ref={audioRef} playsInline preload="none" onPause={() => { if (!shouldReconnectRef.current) setPlaying(false); }} onPlaying={() => { setPlaying(true); setLoading(false); if ("mediaSession" in navigator) navigator.mediaSession.playbackState = "playing"; }} onWaiting={() => { if (shouldReconnectRef.current) setReconnecting(true); }} onError={() => { if (shouldReconnectRef.current) scheduleReconnect(); else { setPlaying(false); setError("The live source is unavailable right now."); } }} onEnded={() => { if (shouldReconnectRef.current) scheduleReconnect(); }} />
     </main>
   );
 }
