@@ -104,7 +104,7 @@ export default function Home() {
     setLoading(true);
     setError("");
     audio.volume = muted ? 0 : volume;
-    audio.src = `/api/live/stream?client=web&ts=${Date.now()}`;
+    audio.src = `${config.sourceType === "browser" ? "/api/live/stream" : "/api/live.mp3"}?client=web&ts=${Date.now()}`;
     audio.load();
     void audio.play().then(() => {
       setLoading(false);
