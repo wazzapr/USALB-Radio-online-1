@@ -170,11 +170,12 @@ export function LiveBroadcastConsole({ stationName, showName }: LiveBroadcastCon
                 <p className="eyebrow text-muted-foreground">Input source</p>
                 <p className="mt-1 text-sm font-bold">What should the relay hear?</p>
               </div>
-              {broadcast.source === "pc" ? <MonitorUp className="h-5 w-5 text-primary" /> : <Music2 className="h-5 w-5 text-accent" />}
+              {broadcast.source === "pc" ? <MonitorUp className="h-5 w-5 text-primary" /> : broadcast.source === "music" ? <Music2 className="h-5 w-5 text-accent" /> : <Mic2 className="h-5 w-5 text-accent" />}
             </div>
-            <div className="flex flex-col gap-3 sm:flex-row">
-               <SourceTile value="pc" selected={broadcast.source === "pc"} onSelect={broadcast.setSource} disabled={isBusy || isLive} icon={<MonitorUp className="h-4 w-4" />} label="PC / system audio" description="Preview a tab, window, or entire screen with its audio." />
-              <SourceTile value="music" selected={broadcast.source === "music"} onSelect={broadcast.setSource} disabled={isBusy || isLive} icon={<Music2 className="h-4 w-4" />} label="Local music file" description="Loop a file from this computer into the desk." />
+            <div className="grid gap-3 sm:grid-cols-3">
+              <SourceTile value="pc" selected={broadcast.source === "pc"} onSelect={broadcast.setSource} disabled={isBusy || isLive} icon={<MonitorUp className="h-4 w-4" />} label="PC / system audio" description="Share a tab, window, or screen with its audio." />
+              <SourceTile value="music" selected={broadcast.source === "music"} onSelect={broadcast.setSource} disabled={isBusy || isLive} icon={<Music2 className="h-4 w-4" />} label="Local music file" description="Loop a music file from this computer." />
+              <SourceTile value="mic" selected={broadcast.source === "mic"} onSelect={broadcast.setSource} disabled={isBusy || isLive} icon={<Mic2 className="h-4 w-4" />} label="Microphone only" description="Go live with voice and no music source." />
             </div>
             {broadcast.source === "music" && (
               <div className="mt-3 flex items-center gap-3 rounded-xl border border-border bg-background/45 p-3">
@@ -260,7 +261,7 @@ export function LiveBroadcastConsole({ stationName, showName }: LiveBroadcastCon
           <div className="rounded-xl border border-border bg-background/35 p-4 sm:p-5">
             <div className="mb-5 flex items-center justify-between">
               <div className="flex items-center gap-2"><SlidersHorizontal className="h-4 w-4 text-primary" /><p className="text-sm font-bold">Desk levels</p></div>
-              <span className="font-mono text-[10px] uppercase tracking-widest text-muted-foreground">Pre-fader monitor</span>
+              <span className="font-mono text-[10px] uppercase tracking-widest text-muted-foreground">Limiter protected · live adjustable</span>
             </div>
             <div className="grid gap-5 sm:grid-cols-2">
               <div>
@@ -270,6 +271,10 @@ export function LiveBroadcastConsole({ stationName, showName }: LiveBroadcastCon
               <div>
                 <div className="mb-2 flex justify-between text-xs"><span className="font-semibold">Voice</span><span className="font-mono text-muted-foreground">{Math.round(broadcast.voiceVolume * 100)}%</span></div>
                 <input type="range" min="0" max="1" step=".01" value={broadcast.voiceVolume} onChange={(event) => broadcast.setVoiceVolume(Number(event.target.value))} className="h-1.5 w-full accent-[hsl(var(--accent))]" data-testid="input-voice-volume" />
+              </div>
+              <div>
+                <div className="mb-2 flex justify-between text-xs"><span className="font-semibold">Master</span><span className="font-mono text-muted-foreground">{Math.round(broadcast.masterVolume * 100)}%</span></div>
+                <input type="range" min="0" max="1" step=".01" value={broadcast.masterVolume} onChange={(event) => broadcast.setMasterVolume(Number(event.target.value))} className="h-1.5 w-full accent-[hsl(var(--primary))]" data-testid="input-master-volume" />
               </div>
             </div>
             <div className="mt-5 grid gap-4 sm:grid-cols-2">
