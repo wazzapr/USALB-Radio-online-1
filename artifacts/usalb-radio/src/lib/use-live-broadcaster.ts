@@ -337,13 +337,16 @@ export function useLiveBroadcaster() {
     shuttingDownRef.current = false;
 
     try {
+      const recorderMimeType = chooseMimeType();
+      if (!recorderMimeType) throw new Error("This browser cannot encode a compatible live audio stream.");
+      const needsPcmFallback = !recorderMimeType.includes("webm");
       if (!navigator.mediaDevices?.getUserMedia) {
         throw new Error("This browser does not support the audio capture tools needed for live broadcast.");
       }
       if (sourceRef.current === "pc" && !navigator.mediaDevices.getDisplayMedia) {
         throw new Error("This browser cannot capture PC/system audio.");
       }
-      const context = new AudioContext();
+      const context = new AudioContext({ latencyHint: "balanced", sampleRate: 48000 });
       await context.resume();
       const destination = context.createMediaStreamDestination();
       const mixBus = context.createGain();
@@ -353,7 +356,7 @@ export function useLiveBroadcaster() {
       const voiceGain = context.createGain();
       const musicAnalyser = context.createAnalyser();
       const voiceAnalyser = context.createAnalyser();
-      const pcmProcessor = typeof context.createScriptProcessor === "function"
+      const pcmProcessor = needsPcmFallback && typeof context.createScriptProcessor === "function"
         ? context.createScriptProcessor(4096, 2, 2)
         : null;
       const pcmSilence = pcmProcessor ? context.createGain() : null;
@@ -488,15 +491,18 @@ export function useLiveBroadcaster() {
           reject(new Error("Could not connect to the live relay. Check the station server and try again."));
         };
       });
-      const mimeType = chooseMimeType();
-      if (!mimeType) throw new Error("This browser cannot encode a compatible live audio stream.");
+      const mimeType = recorderMimeType;
       socket.send(JSON.stringify({
         type: "start",
         mimeType,
         pcmSampleRate: context.sampleRate,
         pcmChannels: 2,
       }));
-      const recorder = new MediaRecorder(destination.stream, { mimeType, audioBitsPerSecond: 128_000 });
+      const recorder = new MediaRecorder(destination.stream, {
+        mimeType,
+        audioBitsPerSecond: 192_000,
+        ...(typeof AudioEncoder !== "undefined" ? { audioBitrateMode: "constant" as const } : {}),
+      });
       recorderRef.current = recorder;
       recorder.ondataavailable = (event) => {
         if (event.data.size > 0 && socket.readyState === WebSocket.OPEN) socket.send(event.data);
@@ -511,7 +517,7 @@ export function useLiveBroadcaster() {
         void cleanupGraph();
         setState("idle");
       };
-      recorder.start(400);
+      recorder.start(500);
       setState("live");
     } catch (cause) {
       const message = cause instanceof Error ? cause.message : "The broadcast could not be started.";
