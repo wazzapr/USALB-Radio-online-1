@@ -501,7 +501,6 @@ export function useLiveBroadcaster() {
       const recorder = new MediaRecorder(destination.stream, {
         mimeType,
         audioBitsPerSecond: 192_000,
-        ...(typeof AudioEncoder !== "undefined" ? { audioBitrateMode: "constant" as const } : {}),
       });
       recorderRef.current = recorder;
       recorder.ondataavailable = (event) => {
