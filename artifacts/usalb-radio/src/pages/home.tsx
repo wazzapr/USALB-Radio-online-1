@@ -1,10 +1,10 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "wouter";
 import { useGetRadioConfig, useGetRadioStatus } from "@workspace/api-client-react";
-import { Activity, ArrowUpRight, Copy, ExternalLink, Globe2, Headphones, Info, Link2, LoaderCircle, MessageCircle, MoreHorizontal, Pause, Play, Share2, Volume2, VolumeX, Wifi, WifiOff } from "lucide-react";
-import logoSrc from "@assets/usalbradio_1775675611808.jpg";
+import { Copy, Download, ExternalLink, Globe2, Headphones, Info, Link2, LoaderCircle, MessageCircle, MoreHorizontal, Pause, Play, Share2, Volume2, VolumeX, Wifi, WifiOff } from "lucide-react";
 import { cn } from "@/lib/utils";
 
+const logoSrc = "/usalb-logo-v2.jpg";
 const fallback = { stationName: "USALB RADIO", tagline: "Zëri që të mban afër.", genre: "Albanian hits · Talk · Culture", hostName: "USALB Studio", showName: "Live from the studio", sourceType: "icecast", isLive: false };
 
 type LiveStatusMessage = {
@@ -42,6 +42,8 @@ export default function Home() {
   const [muted, setMuted] = useState(false);
   const [error, setError] = useState("");
   const [broadcastLive, setBroadcastLive] = useState<boolean | null>(null);
+  const [installPrompt, setInstallPrompt] = useState<BeforeInstallPromptEvent | null>(null);
+  const [reconnecting, setReconnecting] = useState(false);
   const configQuery = useGetRadioConfig();
   const statusQuery = useGetRadioStatus();
   const config = configQuery.data ?? fallback;
@@ -58,14 +60,40 @@ export default function Home() {
   const pcmSourcesRef = useRef<Set<AudioBufferSourceNode>>(new Set());
   const pcmNextTimeRef = useRef(0);
   const pcmConfigRef = useRef({ sampleRate: 48000, channels: 2 });
+  const shouldReconnectRef = useRef(false);
+  const reconnectTimerRef = useRef<number | null>(null);
+  const reconnectAttemptRef = useRef(0);
+  const listenerFormatRef = useRef<ListenerFormat>("webm");
+  const reconnectKindRef = useRef<"live" | "external">("live");
 
   useEffect(() => {
     if (audioRef.current) audioRef.current.volume = muted ? 0 : volume;
     if (pcmGainRef.current) pcmGainRef.current.gain.value = muted ? 0 : volume;
   }, [muted, volume]);
+  useEffect(() => {
+    const handleInstallPrompt = (event: Event) => {
+      event.preventDefault();
+      setInstallPrompt(event as BeforeInstallPromptEvent);
+    };
+    window.addEventListener("beforeinstallprompt", handleInstallPrompt);
+    return () => window.removeEventListener("beforeinstallprompt", handleInstallPrompt);
+  }, []);
+  useEffect(() => {
+    const resumeAudio = () => {
+      if (document.visibilityState === "visible" && audioContextRef.current?.state === "suspended") {
+        void audioContextRef.current.resume();
+      }
+    };
+    document.addEventListener("visibilitychange", resumeAudio);
+    return () => document.removeEventListener("visibilitychange", resumeAudio);
+  }, []);
   const lastUpdated = useMemo(() => updated ? new Date(updated).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : "—", [updated]);
 
   const cleanupListener = () => {
+    if (reconnectTimerRef.current !== null) {
+      window.clearTimeout(reconnectTimerRef.current);
+      reconnectTimerRef.current = null;
+    }
     socketRef.current?.close();
     socketRef.current = null;
     sourceBufferRef.current = null;
@@ -86,6 +114,25 @@ export default function Home() {
     pcmGainRef.current = null;
     if (objectUrlRef.current) URL.revokeObjectURL(objectUrlRef.current);
     objectUrlRef.current = null;
+  };
+
+  const scheduleReconnect = () => {
+    if (!shouldReconnectRef.current || reconnectTimerRef.current !== null) return;
+    const delay = Math.min(12, Math.max(2, 2 ** reconnectAttemptRef.current));
+    reconnectAttemptRef.current += 1;
+    setReconnecting(true);
+    setPlaying(false);
+    setLoading(true);
+    setError(`Connection lost. Reconnecting in ${delay} seconds…`);
+    reconnectTimerRef.current = window.setTimeout(() => {
+      reconnectTimerRef.current = null;
+      cleanupListener();
+      if (reconnectKindRef.current === "external") {
+        startExternalStream();
+      } else {
+        connectListener(listenerFormatRef.current);
+      }
+    }, delay * 1000);
   };
 
   const preparePcmPlayback = () => {
@@ -180,6 +227,7 @@ export default function Home() {
   };
 
   const connectListener = (format: ListenerFormat) => {
+    listenerFormatRef.current = format;
     const audio = audioRef.current;
     const socket = new WebSocket(listenerSocketUrl(format));
     socket.binaryType = "arraybuffer";
@@ -206,6 +254,8 @@ export default function Home() {
           await audio.play();
         }
         setLoading(false);
+        setReconnecting(false);
+        reconnectAttemptRef.current = 0;
         setPlaying(true);
       } catch {
         setLoading(false);
@@ -255,38 +305,68 @@ export default function Home() {
 
     socket.onerror = () => {
       if (socketRef.current !== socket) return;
-      setLoading(false);
-      setPlaying(false);
-      setError("The live studio connection is unavailable.");
+      scheduleReconnect();
     };
 
     socket.onclose = () => {
       if (socketRef.current !== socket) return;
-      setLoading(false);
-      setPlaying(false);
-      if (broadcastLive) setError("The live broadcast connection ended.");
+      scheduleReconnect();
     };
+  };
+
+  const startExternalStream = () => {
+    const audio = audioRef.current;
+    if (!audio) return;
+    reconnectKindRef.current = "external";
+    audio.src = "/api/live.mp3";
+    audio.load();
+    void audio.play().then(() => {
+      setLoading(false);
+      setReconnecting(false);
+      reconnectAttemptRef.current = 0;
+      setPlaying(true);
+      setError("");
+    }).catch(() => {
+      scheduleReconnect();
+    });
   };
 
   const toggle = async () => {
     const audio = audioRef.current;
     if (playing) {
+      shouldReconnectRef.current = false;
       audio?.pause();
       cleanupListener();
+      audio?.removeAttribute("src");
+      audio?.load();
       setPlaying(false);
       return;
     }
 
+    shouldReconnectRef.current = true;
+    reconnectKindRef.current = config.sourceType === "browser" ? "live" : "external";
+    reconnectAttemptRef.current = 0;
     setLoading(true);
     setError("");
     setBroadcastLive(null);
     cleanupListener();
+    if (config.sourceType !== "browser") {
+      startExternalStream();
+      return;
+    }
     const format = canPlayWebmStream() ? "webm" : "pcm";
     if (format === "pcm" && !preparePcmPlayback()) {
       setLoading(false);
       return;
     }
     connectListener(format);
+  };
+
+  const installApp = async () => {
+    if (!installPrompt) return;
+    await installPrompt.prompt();
+    await installPrompt.userChoice;
+    setInstallPrompt(null);
   };
 
   const [shareOpen, setShareOpen] = useState(false);
@@ -325,11 +405,12 @@ export default function Home() {
     <main className="min-h-[100dvh] overflow-hidden">
       <header className="mx-auto flex w-full max-w-7xl items-center justify-between px-5 py-6 sm:px-8">
         <Link href="/" className="flex items-center gap-3" data-testid="link-home">
-          <img src={logoSrc} alt="USALB RADIO" className="h-10 w-[156px] rounded-md object-cover object-left sm:h-12 sm:w-[188px]" data-testid="img-station-logo" />
+           <img src={logoSrc} alt="USALB RADIO" className="h-14 w-16 rounded-xl bg-white object-cover shadow-lg sm:h-16 sm:w-[4.5rem]" data-testid="img-station-logo" />
+           <span className="font-display text-lg font-bold tracking-tight">USALB <span className="text-primary">RADIO</span></span>
         </Link>
         <nav className="flex items-center gap-3">
-          <span className="hidden eyebrow text-muted-foreground sm:inline">Tirana · Prishtina · diaspora</span>
-          <Link href="/admin" className="rounded-full border border-border bg-card/70 px-4 py-2 text-xs font-bold text-foreground transition hover:border-primary/60 hover:bg-card" data-testid="link-admin">Control room <ArrowUpRight className="ml-1 inline h-3 w-3" /></Link>
+           <span className="hidden eyebrow text-muted-foreground sm:inline">Tirana · Prishtina · diaspora</span>
+           {installPrompt && <button onClick={() => void installApp()} className="hidden items-center gap-2 rounded-full border border-accent/40 bg-accent/10 px-4 py-2 text-xs font-bold text-accent transition hover:bg-accent/20 sm:flex" data-testid="button-install-app"><Download className="h-3.5 w-3.5" /> Install app</button>}
         </nav>
       </header>
 
@@ -339,12 +420,12 @@ export default function Home() {
           <div className="eyebrow mb-6 flex items-center gap-3 text-accent"><span className="h-px w-8 bg-accent" /> live radio / 24—7</div>
           <h1 className="font-display max-w-3xl text-5xl font-semibold leading-[.98] tracking-[-.055em] text-foreground sm:text-7xl lg:text-[6.3rem]">Stay close to<br /><em className="text-primary not-italic">the signal.</em></h1>
           <p className="mt-7 max-w-lg text-base leading-7 text-muted-foreground sm:text-lg">{config.tagline || "The Albanian sound, wherever you are."} Tune in for a steady stream of music, voices and stories from the region.</p>
-          <div className="mt-9 flex flex-wrap items-center gap-4">
+           <div className="mt-9 flex flex-wrap items-center gap-4">
             <button onClick={toggle} disabled={loading} className={cn("group flex items-center gap-3 rounded-full px-6 py-3.5 text-sm font-extrabold transition hover:-translate-y-0.5 disabled:cursor-wait disabled:opacity-60", playing ? "bg-accent text-accent-foreground" : "bg-primary text-primary-foreground")} data-testid="button-toggle-player">
               {loading ? <LoaderCircle className="h-5 w-5 animate-spin" /> : playing ? <Pause className="h-5 w-5 fill-current" /> : <Play className="h-5 w-5 fill-current" />}
               {loading ? "Connecting" : playing ? "Pause broadcast" : "Listen live"}
             </button>
-            <div className="relative">
+             <div className="relative">
               <button onClick={share} className="flex items-center gap-2 rounded-full border border-border px-5 py-3.5 text-sm font-bold text-foreground transition hover:border-primary/60 hover:bg-card" aria-expanded={shareOpen} data-testid="button-share-station"><Share2 className="h-4 w-4" /> Share station</button>
               {shareOpen && (
                 <div className="absolute left-0 top-[calc(100%+0.6rem)] z-20 w-64 rounded-2xl border border-border bg-card p-2 shadow-2xl" role="menu" aria-label="Share station">
@@ -381,10 +462,10 @@ export default function Home() {
               )}
             </div>
           </div>
-          {error && <p className="mt-4 flex items-center gap-2 text-sm text-accent" data-testid="status-stream-error"><WifiOff className="h-4 w-4" />{error}</p>}
+           {error && <p className="mt-4 flex items-center gap-2 text-sm text-accent" data-testid="status-stream-error"><WifiOff className="h-4 w-4" />{error}</p>}
+           {reconnecting && <p className="mt-3 text-sm font-semibold text-muted-foreground">You can leave this page open. The player will reconnect automatically.</p>}
           <div className="mt-12 flex flex-wrap gap-x-8 gap-y-4 border-t border-border pt-5 text-xs text-muted-foreground">
             <span className="flex items-center gap-2"><Headphones className="h-4 w-4 text-primary" /> Broadcast from Albania</span>
-             <span className="flex items-center gap-2"><Activity className="h-4 w-4 text-accent" /> Source: {config.sourceType === "browser" ? "Studio console" : config.sourceType || "live"}</span>
           </div>
         </div>
 
@@ -416,12 +497,12 @@ export default function Home() {
               <h2 className="mt-4 font-display text-3xl font-semibold tracking-tight" data-testid="text-show-name">{config.showName || "USALB RADIO"}</h2>
               <p className="mt-2 text-sm text-muted-foreground">{config.hostName || "USALB Studio"} · {config.genre || "Albanian radio"}</p>
             </div>
-            <div className="relative mt-8 flex items-center gap-3 rounded-xl border border-border bg-background/60 p-3">
+             <div className="relative mt-8 flex items-center gap-3 rounded-xl border border-border bg-background/60 p-3">
               <button onClick={() => { setMuted(!muted); if (audioRef.current) audioRef.current.volume = muted ? volume : 0; }} className="rounded-lg p-2 text-muted-foreground transition hover:bg-muted hover:text-foreground" data-testid="button-toggle-mute">{muted ? <VolumeX className="h-4 w-4" /> : <Volume2 className="h-4 w-4" />}</button>
               <input aria-label="Volume" type="range" min="0" max="1" step=".01" value={muted ? 0 : volume} onChange={(e) => { setVolume(Number(e.target.value)); setMuted(false); }} className="h-1 w-full accent-[hsl(var(--primary))]" data-testid="input-volume" />
               <span className="font-mono text-[10px] text-muted-foreground">{Math.round((muted ? 0 : volume) * 100)}%</span>
             </div>
-            <div className="relative mt-4 flex items-center justify-between text-[11px] text-muted-foreground"><span className="flex items-center gap-2"><Wifi className="h-3.5 w-3.5 text-accent" /> Stream health stable</span><span>Updated {lastUpdated}</span></div>
+             <div className="relative mt-4 flex items-center justify-between text-[11px] text-muted-foreground"><span className="flex items-center gap-2"><Wifi className={cn("h-3.5 w-3.5", reconnecting ? "text-accent animate-pulse" : "text-accent")} /> {reconnecting ? "Reconnecting…" : "Ready to play"}</span><span>Updated {lastUpdated}</span></div>
           </div>
         </div>
       </section>
@@ -433,7 +514,12 @@ export default function Home() {
         </div>
       </section>
       <footer className="mx-auto flex max-w-7xl flex-col gap-3 px-5 py-8 text-xs text-muted-foreground sm:flex-row sm:items-center sm:justify-between sm:px-8"><span>© USALB RADIO · Albanian broadcast, wherever you are.</span><span className="flex items-center gap-2"><Info className="h-3.5 w-3.5" /> Your one-tap radio home</span></footer>
-      <audio ref={audioRef} onPause={() => setPlaying(false)} onPlaying={() => setPlaying(true)} onError={() => { setPlaying(false); setError("The live source is unavailable right now."); }} preload="none" />
+      <audio ref={audioRef} onPause={() => { if (!shouldReconnectRef.current) setPlaying(false); }} onPlaying={() => setPlaying(true)} onError={() => { if (shouldReconnectRef.current) scheduleReconnect(); else { setPlaying(false); setError("The live source is unavailable right now."); } }} onEnded={() => { if (shouldReconnectRef.current) scheduleReconnect(); }} preload="none" />
     </main>
   );
 }
+
+type BeforeInstallPromptEvent = Event & {
+  prompt: () => Promise<void>;
+  userChoice: Promise<{ outcome: "accepted" | "dismissed"; platform: string }>;
+};

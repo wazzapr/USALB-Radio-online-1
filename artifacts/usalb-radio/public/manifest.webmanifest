@@ -1,0 +1,18 @@
+{
+  "name": "USALB RADIO",
+  "short_name": "USALB RADIO",
+  "description": "Radio live shqiptare nga Albania për kudo.",
+  "lang": "sq",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#101c20",
+  "theme_color": "#101c20",
+  "icons": [
+    {
+      "src": "/usalb-logo-v2.jpg",
+      "sizes": "any",
+      "type": "image/jpeg",
+      "purpose": "any maskable"
+    }
+  ]
+}

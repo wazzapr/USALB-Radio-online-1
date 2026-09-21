@@ -8,7 +8,10 @@ export const ADMIN_SESSION_COOKIE = "usalb_admin_session";
 const SESSION_TTL_MS = 12 * 60 * 60 * 1000;
 
 export function isAdminAuthRequired(): boolean {
-  return process.env.ADMIN_AUTH_REQUIRED === "true";
+  // The station key is the security boundary. Requiring it whenever it is
+  // configured prevents a missing optional flag from accidentally opening the
+  // control room.
+  return process.env.ADMIN_AUTH_REQUIRED === "true" || Boolean(process.env.ADMIN_ACCESS_KEY);
 }
 
 function sessionSecret(): string {

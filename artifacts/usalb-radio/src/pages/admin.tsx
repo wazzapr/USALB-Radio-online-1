@@ -32,10 +32,10 @@ import {
   Wifi,
   WifiOff,
 } from "lucide-react";
-import logoSrc from "@assets/usalbradio_1775675611808.jpg";
 import { cn } from "@/lib/utils";
 import { LiveBroadcastConsole } from "@/components/live-broadcast-console";
 
+const logoSrc = "/usalb-logo-v2.jpg";
 type FormState = {
   stationName: string;
   tagline: string;
@@ -426,7 +426,8 @@ function AdminShell({ children }: { children: ReactNode }) {
       <header className="border-b border-border bg-background/80 backdrop-blur">
         <div className="mx-auto flex max-w-6xl items-center justify-between px-5 py-5 sm:px-8">
           <Link href="/" className="flex items-center gap-3" data-testid="link-admin-logo">
-            <img src={logoSrc} alt="USALB RADIO" className="h-9 w-[140px] rounded object-cover object-left" />
+             <img src={logoSrc} alt="USALB RADIO" className="h-11 w-14 rounded-xl bg-white object-cover" />
+             <span className="hidden font-display text-base font-bold sm:inline">USALB <span className="text-primary">RADIO</span></span>
             <span className="hidden border-l border-border pl-3 text-xs font-bold text-muted-foreground sm:inline">Control room</span>
           </Link>
           <Link href="/" className="flex items-center gap-2 text-xs font-bold text-muted-foreground transition hover:text-foreground" data-testid="link-back-to-player">

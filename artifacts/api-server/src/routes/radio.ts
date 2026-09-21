@@ -1,4 +1,5 @@
 import { Router, type IRouter } from "express";
+import { Readable } from "node:stream";
 import {
   GetRadioConfigResponse,
   GetRadioStatusResponse,
@@ -39,7 +40,10 @@ router.get("/radio/config", async (_req, res): Promise<void> => {
 router.get("/radio/status", async (_req, res): Promise<void> => {
   const station = await getStationSettings();
   const publicStation = toPublicStation(station);
-  const broadcastLive = getLiveBroadcastStatus();
+  const broadcastLive =
+    publicStation.sourceType === "browser"
+      ? getLiveBroadcastStatus()
+      : publicStation.isLive;
   res.json(
     GetRadioStatusResponse.parse({
       isLive: broadcastLive,
@@ -57,8 +61,38 @@ router.get("/stream-url", (_req, res): void => {
 });
 
 router.get("/live.mp3", (_req, res): void => {
-  res.status(410).json({
-    error: "The station now uses the browser broadcast channel.",
+  void (async () => {
+    const station = await getStationSettings();
+    if (station.sourceType === "browser" || !isHttpUrl(station.sourceUrl)) {
+      res.status(503).json({ error: "The browser studio is not currently on air." });
+      return;
+    }
+
+    const upstream = await fetch(station.sourceUrl, {
+      headers: {
+        Accept: "audio/mpeg,audio/aac,audio/ogg,audio/*;q=0.9,*/*;q=0.8",
+        "User-Agent": "USALB-RADIO/1.0",
+      },
+      signal: AbortSignal.timeout(12000),
+    });
+
+    if (!upstream.ok || !upstream.body) {
+      res.status(502).json({ error: "The configured radio source is unavailable." });
+      return;
+    }
+
+    res.status(200);
+    res.setHeader("Content-Type", upstream.headers.get("content-type") || "audio/mpeg");
+    res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate");
+    res.setHeader("Connection", "keep-alive");
+    Readable.fromWeb(upstream.body).pipe(res);
+  })().catch((error) => {
+    _req.log.warn({ error }, "Live stream proxy failed");
+    if (!res.headersSent) {
+      res.status(502).json({ error: "The configured radio source is unavailable." });
+    } else {
+      res.end();
+    }
   });
 });
 
