@@ -3,7 +3,7 @@ import { WebSocket, WebSocketServer, type RawData } from "ws";
 
 const LIVE_SOCKET_PATH = "/api/live/ws";
 const MP3_STREAM_PATH = "/api/live/stream";
-const BROADCAST_KEY = process.env["USALB_BROADCAST_KEY"]?.trim() ?? "";
+const BROADCAST_KEY = process.env["USALB_BROADCAST_KEY"]?.trim() || process.env["ADMIN_ACCESS_KEY"]?.trim() || "";
 const MAX_RECENT_MP3_BYTES = 96 * 1024;
 
 let broadcaster: WebSocket | null = null;
