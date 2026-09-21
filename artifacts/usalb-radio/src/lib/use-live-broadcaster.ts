@@ -242,8 +242,8 @@ export function useLiveBroadcaster() {
     const preview = previewGraphRef.current;
     const analyserGraph = graph ?? preview;
     if (!analyserGraph) return;
-    const voiceData = new Uint8Array(graph.voiceAnalyser.fftSize);
-    const musicData = new Uint8Array(graph.musicAnalyser.fftSize);
+    const voiceData = new Uint8Array(analyserGraph.voiceAnalyser.fftSize);
+    const musicData = new Uint8Array(analyserGraph.musicAnalyser.fftSize);
     const frame = () => {
       const currentGraph = graphRef.current;
       const currentPreview = previewGraphRef.current;
