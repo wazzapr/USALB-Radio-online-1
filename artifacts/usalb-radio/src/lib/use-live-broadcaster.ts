@@ -155,7 +155,9 @@ export function useLiveBroadcaster() {
     preview.musicElement?.pause();
     if (preview.musicElement) preview.musicElement.src = "";
     preview.displaySource?.disconnect();
-    preview.displayStream?.getTracks().forEach((track) => track.stop());
+    if (preview.displayStream && displayStreamRef.current !== preview.displayStream) {
+      preview.displayStream.getTracks().forEach((track) => track.stop());
+    }
     preview.microphoneStream?.getTracks().forEach((track) => track.stop());
     preview.musicGain.disconnect();
     preview.voiceGain.disconnect();
